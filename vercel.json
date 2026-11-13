@@ -4,11 +4,13 @@
     "api": {
       "root": "apps/api",
       "framework": "nestjs",
-      "entrypoint": "src/main.ts"
+      "entrypoint": "src/main.ts",
+      "buildCommand": "pnpm --filter @amplyra/api vercel-build"
     },
     "web": {
       "root": "apps/web",
-      "framework": "nextjs"
+      "framework": "nextjs",
+      "buildCommand": "pnpm --filter @amplyra/web vercel-build"
     }
   },
   "rewrites": [
