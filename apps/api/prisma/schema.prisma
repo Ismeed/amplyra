@@ -1,0 +1,589 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  BUSINESS
+  CREATOR
+  ADMIN
+}
+
+enum SocialPlatform {
+  INSTAGRAM
+  TIKTOK
+  FACEBOOK
+  YOUTUBE
+  X
+}
+
+enum SocialConnectionStatus {
+  CONNECTED
+  EXPIRED
+  REVOKED
+}
+
+enum CampaignStatus {
+  DRAFT
+  PUBLISHED
+  APPLICATIONS_OPEN
+  CREATOR_SELECTED
+  FUNDED
+  CREATOR_ACCEPTED
+  CONTENT_APPROVAL
+  PUBLISHED_ON_SOCIAL
+  ACTIVE_REPORTING
+  FINAL_VERIFICATION
+  COMPLETED
+  PAYMENT_RELEASED
+  CANCELLED
+  DISPUTED
+  FAILED
+  REFUNDED
+  UNDER_REVIEW
+}
+
+enum ApplicationType {
+  APPLICATION
+  INVITATION
+}
+
+enum ApplicationStatus {
+  PENDING
+  INVITED
+  APPROVED
+  DECLINED
+  WITHDRAWN
+  ACCEPTED_BY_CREATOR
+}
+
+enum VerificationStatus {
+  PENDING_VERIFICATION
+  API_VERIFIED
+  CREATOR_EVIDENCE
+  PUBLIC_OBSERVATION
+  FLAGGED_EVIDENCE
+}
+
+enum ReportStatus {
+  SCHEDULED
+  SUBMITTED_API
+  SUBMITTED_EVIDENCE
+  MISSED
+  FLAGGED
+}
+
+enum MetricSourceType {
+  official_api
+  creator_evidence
+  public_observation
+}
+
+enum FundingStatus {
+  PENDING_PAYMENT
+  HELD_BY_PARTNER
+  RELEASE_REQUESTED
+  RELEASED
+  DISPUTED
+  REFUNDED
+}
+
+enum PaymentTransactionType {
+  FUNDING
+  FEE
+  PAYOUT_RELEASE
+  REFUND
+}
+
+enum PaymentTransactionStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+enum DisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED_RELEASE
+  RESOLVED_REFUND
+  DISMISSED
+}
+
+enum AiContentType {
+  CAPTION
+  AD_COPY
+  VIDEO_SCRIPT
+  EMAIL_COPY
+  SLOGAN
+  HASHTAGS
+}
+
+enum ContentCalendarStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  PUBLISHED
+}
+
+enum NotificationType {
+  CAMPAIGN_INVITATION
+  APPLICATION_RECEIVED
+  APPLICATION_APPROVED
+  APPLICATION_DECLINED
+  CREATOR_ACCEPTED
+  POST_SUBMITTED
+  REPORT_REMINDER
+  CAMPAIGN_UPDATED
+  PAYMENT_FUNDED
+  PAYMENT_RELEASED
+  DISPUTE_OPENED
+  SYSTEM
+}
+
+model User {
+  id                String                    @id @default(cuid())
+  email             String                    @unique
+  passwordHash      String
+  fullName          String
+  role              UserRole
+  emailVerifiedAt   DateTime?
+  emailVerifyToken  String?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  sessions          Session[]
+  business          Business?
+  creator           Creator?
+  socialConnections SocialAccountConnection[]
+  notifications     Notification[]
+  auditLogs         AuditLog[]                @relation("AuditActor")
+
+  @@index([role])
+}
+
+model Session {
+  id               String    @id @default(cuid())
+  userId           String
+  refreshTokenHash String
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model SocialAccountConnection {
+  id                    String                 @id @default(cuid())
+  userId                String
+  platform              SocialPlatform
+  externalAccountId     String
+  accountName           String
+  accountHandle         String
+  scopes                String[]
+  status                SocialConnectionStatus @default(CONNECTED)
+  encryptedAccessToken  String
+  encryptedRefreshToken String?
+  tokenExpiresAt        DateTime?
+  lastSyncedAt          DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, platform, externalAccountId])
+  @@index([userId, platform])
+}
+
+model Business {
+  id                   String                @id @default(cuid())
+  ownerUserId          String                @unique
+  name                 String
+  industry             String
+  description          String?
+  productsServices     String?
+  targetAudience       String?
+  country              String                @default("Nigeria")
+  state                String?
+  city                 String?
+  websiteUrl           String?
+  brandTone            String?
+  monthlyBudgetKobo    Int?
+  verifiedAt           DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+
+  owner                User                  @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  campaigns            Campaign[]
+  fundings             CampaignFunding[]
+  aiStrategies         AiStrategy[]
+  aiGeneratedContents  AiGeneratedContent[]
+  contentCalendarItems ContentCalendarItem[]
+
+  @@index([country, state, city])
+  @@index([industry])
+}
+
+model Creator {
+  id                 String                 @id @default(cuid())
+  userId             String                 @unique
+  displayName        String
+  bio                String?
+  avatarUrl          String?
+  country            String                 @default("Nigeria")
+  state              String?
+  city               String?
+  categories         String[]
+  niches             String[]
+  isAvailable        Boolean                @default(true)
+  minRateKobo        Int                    @default(0)
+  maxRateKobo        Int?
+  payoutBankName     String?
+  payoutAccountName  String?
+  payoutAccountLast4 String?
+  verifiedAt         DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  user               User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  socialAccounts     CreatorSocialAccount[]
+  portfolioItems     CreatorPortfolioItem[]
+  applications       CampaignApplication[]
+  assignments        CampaignAssignment[]
+  submittedPosts     CampaignPost[]
+  reports            CampaignReport[]
+
+  @@index([country, state, city])
+  @@index([isAvailable])
+  @@index([minRateKobo])
+}
+
+model CreatorSocialAccount {
+  id                String         @id @default(cuid())
+  creatorId         String
+  platform          SocialPlatform
+  handle            String
+  profileUrl        String?
+  followersCount    Int            @default(0)
+  avgEngagementRate Float?
+  isOAuthConnected  Boolean        @default(false)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  creator           Creator        @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@unique([creatorId, platform])
+  @@index([platform, followersCount])
+}
+
+model CreatorPortfolioItem {
+  id          String         @id @default(cuid())
+  creatorId   String
+  title       String
+  platform    SocialPlatform
+  postUrl     String
+  description String?
+  viewsCount  Int?
+  likesCount  Int?
+  createdAt   DateTime       @default(now())
+
+  creator     Creator        @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([creatorId])
+}
+
+model Campaign {
+  id                   String                @id @default(cuid())
+  businessId           String
+  title                String
+  productOrService     String
+  description          String
+  objectives           String?
+  targetAudience       String?
+  preferredCategories  String[]
+  targetCountry        String                @default("Nigeria")
+  targetState          String?
+  targetCity           String?
+  platforms            SocialPlatform[]
+  budgetKobo           Int
+  creatorsNeeded       Int                   @default(1)
+  deliverables         Json
+  publicationDeadline  DateTime?
+  retentionDays        Int                   @default(15)
+  startDate            DateTime?
+  endDate              DateTime?
+  status               CampaignStatus        @default(DRAFT)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+
+  business             Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  applications         CampaignApplication[]
+  assignments          CampaignAssignment[]
+  posts                CampaignPost[]
+  reports              CampaignReport[]
+  metricSnapshots      MetricSnapshot[]
+  funding              CampaignFunding?
+  disputes             PaymentDispute[]
+  contentCalendarItems ContentCalendarItem[]
+
+  @@index([businessId])
+  @@index([status])
+  @@index([targetCountry, targetState, targetCity])
+}
+
+model CampaignApplication {
+  id               String            @id @default(cuid())
+  campaignId       String
+  creatorId        String
+  type             ApplicationType   @default(APPLICATION)
+  status           ApplicationStatus @default(PENDING)
+  pitch            String?
+  proposedRateKobo Int?
+  deliverablePlan  String?
+  reviewedAt       DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  campaign         Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  creator          Creator           @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, creatorId])
+  @@index([creatorId, status])
+  @@index([campaignId, status])
+}
+
+model CampaignAssignment {
+  id             String         @id @default(cuid())
+  campaignId     String
+  creatorId      String
+  agreedRateKobo Int
+  deliverables   Json
+  acceptedAt     DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  campaign       Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  creator        Creator        @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  posts          CampaignPost[]
+
+  @@unique([campaignId, creatorId])
+  @@index([creatorId])
+}
+
+model CampaignPost {
+  id                 String             @id @default(cuid())
+  campaignId         String
+  assignmentId       String
+  creatorId          String
+  platform           SocialPlatform
+  postUrl            String
+  platformPostId     String?
+  caption            String?
+  verificationStatus VerificationStatus @default(PENDING_VERIFICATION)
+  submittedAt        DateTime           @default(now())
+  retentionUntil     DateTime
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  campaign           Campaign           @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  assignment         CampaignAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  creator            Creator            @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  reports            CampaignReport[]
+  metricSnapshots    MetricSnapshot[]
+
+  @@unique([campaignId, postUrl])
+  @@index([campaignId])
+  @@index([creatorId])
+}
+
+model CampaignReport {
+  id               String           @id @default(cuid())
+  campaignId       String
+  postId           String
+  creatorId        String
+  milestoneDay     Int
+  dueAt            DateTime
+  submittedAt      DateTime?
+  status           ReportStatus     @default(SCHEDULED)
+  notes            String?
+  evidenceImageUrl String?
+  extractedSummary Json?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  campaign         Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  post             CampaignPost     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  creator          Creator          @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  metricSnapshots  MetricSnapshot[]
+
+  @@unique([postId, milestoneDay])
+  @@index([campaignId, dueAt])
+  @@index([creatorId, status])
+}
+
+model MetricSnapshot {
+  id           String           @id @default(cuid())
+  campaignId   String
+  postId       String
+  reportId     String?
+  platform     SocialPlatform
+  metricSource MetricSourceType
+  views        Int?
+  reach        Int?
+  impressions  Int?
+  likes        Int?
+  comments     Int?
+  shares       Int?
+  saves        Int?
+  retrievedAt  DateTime         @default(now())
+  createdAt    DateTime         @default(now())
+
+  campaign     Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  post         CampaignPost     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  report       CampaignReport?  @relation(fields: [reportId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId, retrievedAt])
+  @@index([postId, retrievedAt])
+}
+
+model CampaignFunding {
+  id                String               @id @default(cuid())
+  campaignId        String               @unique
+  businessId        String
+  amountKobo        Int
+  platformFeeKobo   Int
+  creatorNetKobo    Int
+  provider          String
+  providerReference String               @unique
+  status            FundingStatus        @default(PENDING_PAYMENT)
+  fundedAt          DateTime?
+  releasedAt        DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  campaign          Campaign             @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  business          Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  transactions      PaymentTransaction[]
+  disputes          PaymentDispute[]
+
+  @@index([businessId, status])
+}
+
+model PaymentTransaction {
+  id                String                   @id @default(cuid())
+  campaignFundingId String
+  type              PaymentTransactionType
+  amountKobo        Int
+  providerReference String?
+  idempotencyKey    String                   @unique
+  status            PaymentTransactionStatus @default(PENDING)
+  metadata          Json?
+  createdAt         DateTime                 @default(now())
+
+  campaignFunding   CampaignFunding          @relation(fields: [campaignFundingId], references: [id], onDelete: Cascade)
+
+  @@index([campaignFundingId, createdAt])
+}
+
+model PaymentDispute {
+  id                String          @id @default(cuid())
+  campaignId        String
+  campaignFundingId String
+  openedByUserId    String
+  reason            String
+  status            DisputeStatus   @default(OPEN)
+  resolutionNotes   String?
+  resolvedByUserId  String?
+  createdAt         DateTime        @default(now())
+  resolvedAt        DateTime?
+
+  campaign          Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignFunding   CampaignFunding @relation(fields: [campaignFundingId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([campaignId])
+}
+
+model AiStrategy {
+  id           String   @id @default(cuid())
+  businessId   String
+  objective    String
+  budgetKobo   Int?
+  strategyJson Json
+  providerUsed String
+  createdAt    DateTime @default(now())
+
+  business     Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt])
+}
+
+model AiGeneratedContent {
+  id            String         @id @default(cuid())
+  businessId    String
+  contentType   AiContentType
+  platform      SocialPlatform
+  promptSummary String
+  outputText    String
+  brandToneUsed String?
+  createdAt     DateTime       @default(now())
+
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt])
+}
+
+model ContentCalendarItem {
+  id           String                @id @default(cuid())
+  businessId   String
+  campaignId   String?
+  title        String
+  platform     SocialPlatform
+  caption      String
+  scheduledFor DateTime
+  status       ContentCalendarStatus @default(DRAFT)
+  publishedAt  DateTime?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  business     Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  campaign     Campaign?             @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, scheduledFor])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  metadata  Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  action      String
+  entityType  String
+  entityId    String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  actor       User?    @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}

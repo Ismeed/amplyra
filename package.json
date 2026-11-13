@@ -1,0 +1,21 @@
+{
+  "name": "amplyra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Amplyra AI — AI-powered Marketing Operating System and Creator Collaboration Marketplace",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "dev:api": "pnpm --filter @amplyra/api dev",
+    "dev:web": "pnpm --filter @amplyra/web dev",
+    "build": "pnpm --filter @amplyra/shared build && pnpm --filter @amplyra/api build && pnpm --filter @amplyra/web build",
+    "test": "pnpm --filter @amplyra/shared test && pnpm --filter @amplyra/api test",
+    "lint": "pnpm -r lint",
+    "db:generate": "pnpm --filter @amplyra/api db:generate",
+    "db:migrate": "pnpm --filter @amplyra/api db:migrate",
+    "db:seed": "pnpm --filter @amplyra/api db:seed"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}
