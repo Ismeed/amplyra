@@ -97,6 +97,18 @@ export enum AiContentType {
   HASHTAGS = 'HASHTAGS',
 }
 
+export enum StoragePurpose {
+  EVIDENCE_SCREENSHOT = 'EVIDENCE_SCREENSHOT',
+  CAMPAIGN_MEDIA = 'CAMPAIGN_MEDIA',
+  CREATOR_AVATAR = 'CREATOR_AVATAR',
+  BUSINESS_LOGO = 'BUSINESS_LOGO',
+}
+
+export enum UploadedFileStatus {
+  PENDING = 'PENDING',
+  READY = 'READY',
+}
+
 export type MetricSource =
   | 'official_api'
   | 'creator_evidence'

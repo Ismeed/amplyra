@@ -32,6 +32,7 @@ export class BusinessesService {
         state: dto.state?.trim(),
         city: dto.city?.trim(),
         websiteUrl: dto.websiteUrl?.trim(),
+        logoUrl: dto.logoUrl?.trim(),
         brandTone: dto.brandTone?.trim(),
         monthlyBudgetKobo: dto.monthlyBudgetKobo,
       },
@@ -70,6 +71,7 @@ export class BusinessesService {
         ...(dto.websiteUrl !== undefined
           ? { websiteUrl: dto.websiteUrl?.trim() }
           : {}),
+        ...(dto.logoUrl !== undefined ? { logoUrl: dto.logoUrl?.trim() } : {}),
         ...(dto.brandTone !== undefined ? { brandTone: dto.brandTone?.trim() } : {}),
         ...(dto.monthlyBudgetKobo !== undefined
           ? { monthlyBudgetKobo: dto.monthlyBudgetKobo }

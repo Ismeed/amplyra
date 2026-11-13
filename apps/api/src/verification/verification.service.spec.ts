@@ -3,6 +3,8 @@ import {
   MetricSourceType,
   ReportStatus,
   SocialPlatform,
+  StoragePurpose,
+  UploadedFileStatus,
   VerificationStatus,
 } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
@@ -73,6 +75,76 @@ describe('VerificationService & TokenCryptoService', () => {
     expect(mockPrisma.campaignPost.update).toHaveBeenCalledWith({
       where: { id: 'post-1' },
       data: { verificationStatus: VerificationStatus.CREATOR_EVIDENCE },
+    });
+  });
+
+  it('links Supabase Storage evidenceFileId to CampaignReport and keeps CREATOR_EVIDENCE tag', async () => {
+    const mockPrisma: any = {
+      creator: { findUnique: jest.fn().mockResolvedValue({ id: 'cr-1', displayName: 'Zainab' }) },
+      campaignPost: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'post-1',
+          campaignId: 'camp-1',
+          creatorId: 'cr-1',
+          platform: SocialPlatform.INSTAGRAM,
+          verificationStatus: VerificationStatus.PENDING_VERIFICATION,
+          campaign: {
+            id: 'camp-1',
+            title: 'Harmattan',
+            status: CampaignStatus.ACTIVE_REPORTING,
+            business: { ownerUserId: 'biz-user-1' },
+          },
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      uploadedFile: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'file-ev-1',
+          ownerUserId: 'user-cr-1',
+          purpose: StoragePurpose.EVIDENCE_SCREENSHOT,
+          bucket: 'amplyra-private',
+          objectPath: 'evidence-screenshots/user-cr-1/img.png',
+          campaignId: 'camp-1',
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      campaignReport: {
+        upsert: jest.fn().mockImplementation(async ({ create }: any) => ({
+          id: 'rep-2',
+          ...create,
+        })),
+      },
+      metricSnapshot: {
+        create: jest.fn().mockImplementation(async ({ data }: any) => ({
+          id: 'snap-2',
+          ...data,
+        })),
+      },
+      $transaction: jest.fn(async (cb: (tx: any) => Promise<any>) => cb(mockPrisma)),
+    };
+
+    const service = new VerificationService(
+      mockPrisma,
+      {} as any,
+      { create: jest.fn().mockResolvedValue({}) } as any,
+    );
+
+    const res = await service.submitCreatorEvidenceReport('user-cr-1', 'camp-1', {
+      postId: 'post-1',
+      milestoneDay: 5,
+      evidenceFileId: 'file-ev-1',
+    });
+
+    expect(res.report.evidenceImageUrl).toBe(
+      'supabase://amplyra-private/evidence-screenshots/user-cr-1/img.png',
+    );
+    expect(mockPrisma.uploadedFile.update).toHaveBeenCalledWith({
+      where: { id: 'file-ev-1' },
+      data: {
+        campaignId: 'camp-1',
+        reportId: 'rep-2',
+        status: UploadedFileStatus.READY,
+      },
     });
   });
 });

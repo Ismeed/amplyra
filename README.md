@@ -25,6 +25,7 @@ amplyra/
 - **Protected Campaign Payments (`payments`)**: Integer `kobo` funding & payout ledger with transparent 10% platform fee / 90% creator split, Paystack checkout + HMAC-SHA512 webhook verification (plus labeled sandbox partner funding), dispute opening/resolution, and release gating against deliverables, retention dates, and active disputes.
 - **AI Marketing Department (`ai`)**: Provider-independent AI adapter (Gemini / OpenAI / deterministic fallback) powering AI Marketing Strategist, Brand-Toned Content Studio, Approval-Gated Content Calendar, and Grounded AI Marketing Analyst + Recommendations.
 - **Notifications & Audit Logs (`notifications`, `admin`)**: In-app notifications for campaign, report, and payment milestones plus an Admin verification, dispute resolution, and audit console.
+- **Supabase Postgres & Storage (`storage`)**: Supavisor-ready Prisma configuration (`DATABASE_URL` + `DIRECT_URL`) and server-authorized Supabase Storage signed upload/download URLs across `amplyra-private` (evidence screenshots, campaign media) and `amplyra-public` (creator avatars, business logos).
 
 ## Quick Start
 
@@ -62,3 +63,19 @@ Password for all seeded accounts: `AmplyraDemo123!`
 - **Business:** `founder@katsinathreadz.ng` (Katsina Threadz)
 - **Creator:** `zainab@creators.amplyra.ai` (Zainab Styles — Katsina)
 - **Admin:** `admin@amplyra.ai`
+
+## Supabase Production Configuration
+
+1. Set **PostgreSQL / Supavisor** connection strings:
+   - `DATABASE_URL`: Supabase Transaction Pooler (`port 6543`, `?pgbouncer=true&connection_limit=1`)
+   - `DIRECT_URL`: Supabase Direct / Session connection (`port 5432`) for `prisma db push` / `prisma migrate`
+2. Set **Supabase Storage** credentials on the API server (`apps/api`):
+   - `SUPABASE_URL`: `https://<project-ref>.supabase.co`
+   - `SUPABASE_SERVICE_ROLE_KEY`: Server-side service role / secret key (never set as `NEXT_PUBLIC_*`)
+   - `SUPABASE_STORAGE_PRIVATE_BUCKET` (default `amplyra-private`)
+   - `SUPABASE_STORAGE_PUBLIC_BUCKET` (default `amplyra-public`)
+3. Lock down **`public` schema RLS** after pushing schema changes or adding Prisma tables:
+   ```bash
+   pnpm --filter @amplyra/api exec prisma db execute --file prisma/supabase-rls.sql --schema prisma/schema.prisma
+   ```
+   Enables Row Level Security and revokes direct `anon`/`authenticated` Data API table privileges while keeping server-side NestJS/Prisma access working via `postgres` (`BYPASSRLS`).

@@ -1,18 +1,25 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { SocialPlatform, formatNgnFromKobo, nairaToKobo } from '@amplyra/shared';
+import {
+  SocialPlatform,
+  StoragePurpose,
+  formatNgnFromKobo,
+  nairaToKobo,
+} from '@amplyra/shared';
 import Link from 'next/link';
-import { FormEvent, useState } from 'react';
+import { ChangeEvent, FormEvent, useState } from 'react';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { CREATOR_NAV } from '@/components/nav-configs';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+import { uploadToSupabaseStorage } from '@/lib/storage';
 
 interface CreatorProfile {
   id: string;
   displayName: string;
   bio?: string | null;
+  avatarUrl?: string | null;
   city?: string | null;
   state?: string | null;
   country: string;
@@ -62,6 +69,7 @@ export default function CreatorOverviewPage() {
     SocialPlatform.TIKTOK,
   );
   const [portUrl, setPortUrl] = useState('');
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const hasProfile = !!user?.creator;
 
@@ -128,6 +136,29 @@ export default function CreatorOverviewPage() {
     setPortTitle('');
     setPortUrl('');
     queryClient.invalidateQueries({ queryKey: ['creator-me'] });
+  }
+
+  async function handleAvatarUpload(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingAvatar(true);
+    setError(null);
+    try {
+      const uploaded = await uploadToSupabaseStorage({
+        file,
+        purpose: StoragePurpose.CREATOR_AVATAR,
+      });
+      await apiFetch('/creators/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ avatarUrl: uploaded.url }),
+      });
+      queryClient.invalidateQueries({ queryKey: ['creator-me'] });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setUploadingAvatar(false);
+      e.target.value = '';
+    }
   }
 
   if (loading) {
@@ -248,13 +279,41 @@ export default function CreatorOverviewPage() {
         <div className="text-sm text-slate-500">Loading creator profile...</div>
       ) : (
         <div className="space-y-6">
+          {error && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">
+              {error}
+            </div>
+          )}
           <div className="bg-white rounded-2xl border border-slate-200 p-5 flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-bold text-slate-900">{creator.displayName}</h2>
-              <p className="text-sm text-slate-500">
-                {[creator.city, creator.state, creator.country].filter(Boolean).join(', ')} •
-                Starting rate {formatNgnFromKobo(creator.minRateKobo)}
-              </p>
+            <div className="flex items-center gap-4">
+              {creator.avatarUrl ? (
+                <img
+                  src={creator.avatarUrl}
+                  alt={creator.displayName}
+                  className="w-12 h-12 rounded-full object-cover border border-slate-200"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-sm">
+                  {creator.displayName.slice(0, 2).toUpperCase()}
+                </div>
+              )}
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">{creator.displayName}</h2>
+                <p className="text-sm text-slate-500">
+                  {[creator.city, creator.state, creator.country].filter(Boolean).join(', ')} •
+                  Starting rate {formatNgnFromKobo(creator.minRateKobo)}
+                </p>
+                <label className="inline-block mt-1 text-xs font-semibold text-emerald-700 hover:underline cursor-pointer">
+                  {uploadingAvatar ? 'Uploading photo...' : 'Upload Profile Photo'}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    disabled={uploadingAvatar}
+                    onChange={handleAvatarUpload}
+                  />
+                </label>
+              </div>
             </div>
             <div className="flex gap-3">
               <Link

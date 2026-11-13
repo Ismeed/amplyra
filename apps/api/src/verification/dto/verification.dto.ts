@@ -25,6 +25,10 @@ export class SubmitCampaignReportDto {
   evidenceImageUrl?: string;
 
   @IsOptional()
+  @IsString()
+  evidenceFileId?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)

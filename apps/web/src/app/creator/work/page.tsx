@@ -1,11 +1,12 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { formatNgnFromKobo } from '@amplyra/shared';
-import { FormEvent, useState } from 'react';
+import { StoragePurpose, formatNgnFromKobo } from '@amplyra/shared';
+import { ChangeEvent, FormEvent, useState } from 'react';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { CREATOR_NAV } from '@/components/nav-configs';
 import { apiFetch } from '@/lib/api';
+import { uploadToSupabaseStorage } from '@/lib/storage';
 
 interface CreatorWorkResponse {
   applications: Array<{
@@ -54,6 +55,10 @@ export default function CreatorWorkPage() {
   const [comments, setComments] = useState('');
   const [shares, setShares] = useState('');
   const [reportNotes, setReportNotes] = useState('');
+  const [evidenceFileId, setEvidenceFileId] = useState<string | null>(null);
+  const [evidenceFileName, setEvidenceFileName] = useState<string | null>(null);
+  const [uploadingEvidence, setUploadingEvidence] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
@@ -90,6 +95,26 @@ export default function CreatorWorkPage() {
     }
   }
 
+  async function handleEvidenceFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !reportCampaignId) return;
+    setUploadingEvidence(true);
+    setUploadError(null);
+    try {
+      const uploaded = await uploadToSupabaseStorage({
+        file,
+        purpose: StoragePurpose.EVIDENCE_SCREENSHOT,
+        campaignId: reportCampaignId,
+      });
+      setEvidenceFileId(uploaded.fileId);
+      setEvidenceFileName(uploaded.originalName);
+    } catch (err) {
+      setUploadError((err as Error).message);
+    } finally {
+      setUploadingEvidence(false);
+    }
+  }
+
   async function submitEvidenceReport(e: FormEvent) {
     e.preventDefault();
     if (!reportPostId || !reportCampaignId) return;
@@ -105,6 +130,7 @@ export default function CreatorWorkPage() {
           comments: comments ? Number(comments) : undefined,
           shares: shares ? Number(shares) : undefined,
           notes: reportNotes || undefined,
+          evidenceFileId: evidenceFileId || undefined,
         }),
       });
       setFeedback(
@@ -117,6 +143,9 @@ export default function CreatorWorkPage() {
       setComments('');
       setShares('');
       setReportNotes('');
+      setEvidenceFileId(null);
+      setEvidenceFileName(null);
+      setUploadError(null);
       queryClient.invalidateQueries({ queryKey: ['creator-work'] });
     } catch (err) {
       setFeedback((err as Error).message);
@@ -368,17 +397,48 @@ export default function CreatorWorkPage() {
                 placeholder="Notes or analytics screenshot reference..."
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs"
               />
+              <div className="p-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 space-y-1.5">
+                <label className="block text-xs font-medium text-slate-700">
+                  Analytics Screenshot (Private Supabase Storage)
+                </label>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={handleEvidenceFileChange}
+                  disabled={uploadingEvidence}
+                  className="block w-full text-xs text-slate-600 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:bg-slate-900 file:text-white file:text-xs"
+                />
+                {uploadingEvidence && (
+                  <p className="text-[11px] text-slate-500">
+                    Uploading screenshot to secure storage...
+                  </p>
+                )}
+                {evidenceFileName && (
+                  <p className="text-[11px] text-emerald-700 font-medium">
+                    Attached: {evidenceFileName}
+                  </p>
+                )}
+                {uploadError && (
+                  <p className="text-[11px] text-rose-600">{uploadError}</p>
+                )}
+              </div>
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setReportPostId(null)}
+                  onClick={() => {
+                    setReportPostId(null);
+                    setEvidenceFileId(null);
+                    setEvidenceFileName(null);
+                    setUploadError(null);
+                  }}
                   className="px-4 py-2 rounded-lg border border-slate-300 text-xs"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-semibold cursor-pointer"
+                  disabled={uploadingEvidence}
+                  className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-semibold cursor-pointer disabled:opacity-60"
                 >
                   Submit Evidence Report
                 </button>

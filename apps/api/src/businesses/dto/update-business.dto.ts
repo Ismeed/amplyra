@@ -40,6 +40,10 @@ export class UpdateBusinessDto {
   websiteUrl?: string;
 
   @IsOptional()
+  @IsUrl()
+  logoUrl?: string;
+
+  @IsOptional()
   @IsString()
   brandTone?: string;
 

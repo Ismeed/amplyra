@@ -3,14 +3,17 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   SocialPlatform,
+  StoragePurpose,
   calculatePlatformFeeSplit,
   formatNgnFromKobo,
   nairaToKobo,
 } from '@amplyra/shared';
-import { FormEvent, useState } from 'react';
+import { ChangeEvent, FormEvent, useState } from 'react';
 import { DashboardShell } from '@/components/dashboard-shell';
+import { EvidenceFilePreview } from '@/components/evidence-file-preview';
 import { BUSINESS_NAV } from '@/components/nav-configs';
 import { apiFetch } from '@/lib/api';
+import { uploadToSupabaseStorage } from '@/lib/storage';
 
 interface CampaignDetail {
   id: string;
@@ -67,7 +70,22 @@ interface CampaignAnalyticsResponse {
     submittedAt: string | null;
     status: string;
     notes: string | null;
+    uploadedFiles?: Array<{
+      id: string;
+      originalName: string;
+      mimeType: string;
+      sizeBytes: number;
+    }>;
   }>;
+}
+
+interface CampaignStoredFile {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  purpose: string;
+  accessUrl: string | null;
 }
 
 interface CampaignPaymentResponse {
@@ -101,6 +119,7 @@ export default function BusinessCampaignsPage() {
     SocialPlatform.TIKTOK,
   ]);
   const [creating, setCreating] = useState(false);
+  const [uploadingBriefMedia, setUploadingBriefMedia] = useState(false);
 
   const { data: campaigns = [], isLoading } = useQuery({
     queryKey: ['business-campaigns'],
@@ -129,6 +148,15 @@ export default function BusinessCampaignsPage() {
     enabled: !!selectedCampaignId,
   });
 
+  const { data: campaignFiles = [] } = useQuery({
+    queryKey: ['campaign-files', selectedCampaignId],
+    queryFn: () =>
+      apiFetch<CampaignStoredFile[]>(
+        `/storage/campaigns/${selectedCampaignId}/files`,
+      ),
+    enabled: !!selectedCampaignId,
+  });
+
   function togglePlatform(p: SocialPlatform) {
     setPlatforms((prev) =>
       prev.includes(p) ? prev.filter((item) => item !== p) : [...prev, p],
@@ -140,6 +168,33 @@ export default function BusinessCampaignsPage() {
     queryClient.invalidateQueries({ queryKey: ['campaign-detail', campaignId] });
     queryClient.invalidateQueries({ queryKey: ['campaign-analytics', campaignId] });
     queryClient.invalidateQueries({ queryKey: ['campaign-payment', campaignId] });
+    queryClient.invalidateQueries({ queryKey: ['campaign-files', campaignId] });
+  }
+
+  async function handleCampaignMediaUpload(
+    e: ChangeEvent<HTMLInputElement>,
+    campaignId: string,
+  ) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingBriefMedia(true);
+    setActionMessage(null);
+    try {
+      const uploaded = await uploadToSupabaseStorage({
+        file,
+        purpose: StoragePurpose.CAMPAIGN_MEDIA,
+        campaignId,
+      });
+      setActionMessage(
+        `Uploaded campaign brief asset "${uploaded.originalName}" to Supabase Storage.`,
+      );
+      invalidateSelected(campaignId);
+    } catch (err) {
+      setActionMessage((err as Error).message);
+    } finally {
+      setUploadingBriefMedia(false);
+      e.target.value = '';
+    }
   }
 
   async function handleCreate(e: FormEvent) {
@@ -625,15 +680,23 @@ export default function BusinessCampaignsPage() {
                         {analytics.reports.map((rep) => (
                           <div
                             key={rep.id}
-                            className="p-3 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs"
+                            className="p-3 rounded-xl border border-slate-200 flex flex-wrap items-start justify-between gap-2 text-xs"
                           >
-                            <div>
+                            <div className="space-y-1">
                               <strong>Day {rep.milestoneDay}</strong> • Due{' '}
                               {new Date(rep.dueAt).toLocaleDateString()} •{' '}
                               <span className="font-semibold">{rep.status}</span>
                               {rep.notes && (
                                 <p className="text-slate-500 mt-0.5">{rep.notes}</p>
                               )}
+                              {rep.uploadedFiles?.map((file) => (
+                                <EvidenceFilePreview
+                                  key={file.id}
+                                  fileId={file.id}
+                                  originalName={file.originalName}
+                                  mimeType={file.mimeType}
+                                />
+                              ))}
                             </div>
                             {rep.status !== 'SCHEDULED' && rep.status !== 'FLAGGED' && (
                               <button
@@ -649,6 +712,64 @@ export default function BusinessCampaignsPage() {
                     )}
                   </div>
                 )}
+
+                {/* Campaign Media Storage */}
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h4 className="font-semibold text-sm text-slate-900">
+                        Campaign Brief Assets (Supabase Storage)
+                      </h4>
+                      <p className="text-xs text-slate-500">
+                        Upload private product photos, moodboards, or PDF briefs for assigned creators.
+                      </p>
+                    </div>
+                    <label className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer">
+                      {uploadingBriefMedia ? 'Uploading...' : 'Upload Asset'}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,application/pdf,video/mp4"
+                        className="hidden"
+                        disabled={uploadingBriefMedia}
+                        onChange={(e) =>
+                          handleCampaignMediaUpload(e, selectedCampaign.id)
+                        }
+                      />
+                    </label>
+                  </div>
+                  {campaignFiles.filter((f) => f.purpose === 'CAMPAIGN_MEDIA').length ===
+                  0 ? (
+                    <p className="text-xs text-slate-500">
+                      No campaign assets uploaded yet.
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {campaignFiles
+                        .filter((f) => f.purpose === 'CAMPAIGN_MEDIA')
+                        .map((file) => (
+                          <div
+                            key={file.id}
+                            className="flex items-center justify-between gap-2 p-2 rounded-lg bg-white border border-slate-200 text-xs"
+                          >
+                            <span className="truncate font-medium text-slate-800">
+                              {file.originalName} (
+                              {Math.max(1, Math.round(file.sizeBytes / 1024))} KB)
+                            </span>
+                            {file.accessUrl && (
+                              <a
+                                href={file.accessUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-emerald-700 hover:underline font-semibold shrink-0"
+                              >
+                                Download
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
 
                 {/* Applications */}
                 <div>

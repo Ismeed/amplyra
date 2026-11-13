@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum UserRole {
@@ -144,6 +145,18 @@ enum NotificationType {
   SYSTEM
 }
 
+enum StoragePurpose {
+  EVIDENCE_SCREENSHOT
+  CAMPAIGN_MEDIA
+  CREATOR_AVATAR
+  BUSINESS_LOGO
+}
+
+enum UploadedFileStatus {
+  PENDING
+  READY
+}
+
 model User {
   id                String                    @id @default(cuid())
   email             String                    @unique
@@ -161,6 +174,7 @@ model User {
   socialConnections SocialAccountConnection[]
   notifications     Notification[]
   auditLogs         AuditLog[]                @relation("AuditActor")
+  uploadedFiles     UploadedFile[]
 
   @@index([role])
 }
@@ -212,6 +226,7 @@ model Business {
   state                String?
   city                 String?
   websiteUrl           String?
+  logoUrl              String?
   brandTone            String?
   monthlyBudgetKobo    Int?
   verifiedAt           DateTime?
@@ -330,6 +345,7 @@ model Campaign {
   funding              CampaignFunding?
   disputes             PaymentDispute[]
   contentCalendarItems ContentCalendarItem[]
+  uploadedFiles        UploadedFile[]
 
   @@index([businessId])
   @@index([status])
@@ -421,6 +437,7 @@ model CampaignReport {
   post             CampaignPost     @relation(fields: [postId], references: [id], onDelete: Cascade)
   creator          Creator          @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   metricSnapshots  MetricSnapshot[]
+  uploadedFiles    UploadedFile[]
 
   @@unique([postId, milestoneDay])
   @@index([campaignId, dueAt])
@@ -586,4 +603,29 @@ model AuditLog {
 
   @@index([entityType, entityId])
   @@index([createdAt])
+}
+
+model UploadedFile {
+  id           String             @id @default(cuid())
+  ownerUserId  String
+  purpose      StoragePurpose
+  bucket       String
+  objectPath   String
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  status       UploadedFileStatus @default(PENDING)
+  campaignId   String?
+  reportId     String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  owner        User               @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  campaign     Campaign?          @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  report       CampaignReport?    @relation(fields: [reportId], references: [id], onDelete: SetNull)
+
+  @@unique([bucket, objectPath])
+  @@index([ownerUserId, purpose])
+  @@index([campaignId])
+  @@index([reportId])
 }

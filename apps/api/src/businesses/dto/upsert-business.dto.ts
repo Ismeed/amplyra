@@ -38,6 +38,10 @@ export class UpsertBusinessDto {
   websiteUrl?: string;
 
   @IsOptional()
+  @IsUrl()
+  logoUrl?: string;
+
+  @IsOptional()
   @IsString()
   brandTone?: string;
 

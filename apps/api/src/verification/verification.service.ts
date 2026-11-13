@@ -10,6 +10,8 @@ import {
   NotificationType,
   Prisma,
   ReportStatus,
+  StoragePurpose,
+  UploadedFileStatus,
   VerificationStatus,
 } from '@prisma/client';
 import {
@@ -100,13 +102,58 @@ export class VerificationService {
       dto.saves,
     ].some((v) => typeof v === 'number');
 
-    if (!hasAnyMetric && !dto.evidenceImageUrl) {
+    if (!hasAnyMetric && !dto.evidenceImageUrl && !dto.evidenceFileId) {
       throw new BadRequestException(
         'Provide at least one metric figure or an evidence screenshot to submit a report',
       );
     }
 
+    let linkedFile:
+      | { id: string; bucket: string; objectPath: string }
+      | null = null;
+    if (dto.evidenceFileId) {
+      const file = await this.prisma.uploadedFile.findUnique({
+        where: { id: dto.evidenceFileId },
+      });
+      if (!file) {
+        throw new NotFoundException('Uploaded evidence screenshot not found');
+      }
+      if (file.ownerUserId !== userId) {
+        throw new ForbiddenException(
+          'You can only attach evidence screenshots you uploaded',
+        );
+      }
+      if (file.purpose !== StoragePurpose.EVIDENCE_SCREENSHOT) {
+        throw new BadRequestException(
+          'Attached file is not an evidence screenshot upload',
+        );
+      }
+      if (file.campaignId && file.campaignId !== campaignId) {
+        throw new BadRequestException(
+          'Evidence screenshot belongs to a different campaign',
+        );
+      }
+      linkedFile = file;
+    }
+
+    const resolvedEvidenceUrl =
+      dto.evidenceImageUrl ??
+      (linkedFile
+        ? `supabase://${linkedFile.bucket}/${linkedFile.objectPath}`
+        : undefined);
+
     const now = new Date();
+    const extractedSummary = {
+      source: 'creator_evidence',
+      views: dto.views ?? null,
+      reach: dto.reach ?? null,
+      impressions: dto.impressions ?? null,
+      likes: dto.likes ?? null,
+      comments: dto.comments ?? null,
+      shares: dto.shares ?? null,
+      saves: dto.saves ?? null,
+    } as Prisma.InputJsonValue;
+
     const result = await this.prisma.$transaction(async (tx) => {
       const report = await tx.campaignReport.upsert({
         where: {
@@ -124,35 +171,30 @@ export class VerificationService {
           submittedAt: now,
           status: ReportStatus.SUBMITTED_EVIDENCE,
           notes: dto.notes?.trim(),
-          evidenceImageUrl: dto.evidenceImageUrl,
-          extractedSummary: {
-            source: 'creator_evidence',
-            views: dto.views ?? null,
-            reach: dto.reach ?? null,
-            impressions: dto.impressions ?? null,
-            likes: dto.likes ?? null,
-            comments: dto.comments ?? null,
-            shares: dto.shares ?? null,
-            saves: dto.saves ?? null,
-          } as Prisma.InputJsonValue,
+          evidenceImageUrl: resolvedEvidenceUrl,
+          extractedSummary,
         },
         update: {
           submittedAt: now,
           status: ReportStatus.SUBMITTED_EVIDENCE,
           notes: dto.notes?.trim(),
-          evidenceImageUrl: dto.evidenceImageUrl,
-          extractedSummary: {
-            source: 'creator_evidence',
-            views: dto.views ?? null,
-            reach: dto.reach ?? null,
-            impressions: dto.impressions ?? null,
-            likes: dto.likes ?? null,
-            comments: dto.comments ?? null,
-            shares: dto.shares ?? null,
-            saves: dto.saves ?? null,
-          } as Prisma.InputJsonValue,
+          ...(resolvedEvidenceUrl !== undefined
+            ? { evidenceImageUrl: resolvedEvidenceUrl }
+            : {}),
+          extractedSummary,
         },
       });
+
+      if (linkedFile) {
+        await tx.uploadedFile.update({
+          where: { id: linkedFile.id },
+          data: {
+            campaignId,
+            reportId: report.id,
+            status: UploadedFileStatus.READY,
+          },
+        });
+      }
 
       const snapshot = await tx.metricSnapshot.create({
         data: {
@@ -227,6 +269,16 @@ export class VerificationService {
         },
         creator: { select: { id: true, displayName: true } },
         metricSnapshots: { orderBy: { retrievedAt: 'desc' } },
+        uploadedFiles: {
+          select: {
+            id: true,
+            originalName: true,
+            mimeType: true,
+            sizeBytes: true,
+            status: true,
+            createdAt: true,
+          },
+        },
       },
       orderBy: [{ milestoneDay: 'asc' }, { dueAt: 'asc' }],
     });
@@ -247,6 +299,18 @@ export class VerificationService {
       }),
       this.prisma.campaignReport.findMany({
         where: { campaignId },
+        include: {
+          uploadedFiles: {
+            select: {
+              id: true,
+              originalName: true,
+              mimeType: true,
+              sizeBytes: true,
+              status: true,
+              createdAt: true,
+            },
+          },
+        },
         orderBy: { milestoneDay: 'asc' },
       }),
     ]);

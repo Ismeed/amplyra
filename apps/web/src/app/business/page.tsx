@@ -1,19 +1,21 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { formatNgnFromKobo, nairaToKobo } from '@amplyra/shared';
+import { StoragePurpose, formatNgnFromKobo, nairaToKobo } from '@amplyra/shared';
 import Link from 'next/link';
-import { FormEvent, useState } from 'react';
+import { ChangeEvent, FormEvent, useState } from 'react';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { BUSINESS_NAV } from '@/components/nav-configs';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+import { uploadToSupabaseStorage } from '@/lib/storage';
 
 interface BusinessDashboardResponse {
   business: {
     id: string;
     name: string;
     industry: string;
+    logoUrl?: string | null;
     city?: string | null;
     state?: string | null;
     country: string;
@@ -57,6 +59,7 @@ export default function BusinessOverviewPage() {
   const [monthlyBudgetNaira, setMonthlyBudgetNaira] = useState('150000');
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
 
   const hasProfile = !!user?.business;
 
@@ -93,6 +96,29 @@ export default function BusinessOverviewPage() {
       setFormError((err as Error).message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleLogoUpload(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingLogo(true);
+    setFormError(null);
+    try {
+      const uploaded = await uploadToSupabaseStorage({
+        file,
+        purpose: StoragePurpose.BUSINESS_LOGO,
+      });
+      await apiFetch('/businesses/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ logoUrl: uploaded.url }),
+      });
+      queryClient.invalidateQueries({ queryKey: ['business-dashboard'] });
+    } catch (err) {
+      setFormError((err as Error).message);
+    } finally {
+      setUploadingLogo(false);
+      e.target.value = '';
     }
   }
 
@@ -239,12 +265,40 @@ export default function BusinessOverviewPage() {
         <div className="text-sm text-slate-500">Loading business dashboard...</div>
       ) : (
         <div className="space-y-6">
+          {formError && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">
+              {formError}
+            </div>
+          )}
           <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200">
-            <div>
-              <h2 className="text-xl font-bold text-slate-900">{data.business.name}</h2>
-              <p className="text-sm text-slate-500">
-                {data.business.industry} • {data.business.city || data.business.state || data.business.country}
-              </p>
+            <div className="flex items-center gap-4">
+              {data.business.logoUrl ? (
+                <img
+                  src={data.business.logoUrl}
+                  alt={data.business.name}
+                  className="w-12 h-12 rounded-xl object-cover border border-slate-200"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-sm">
+                  {data.business.name.slice(0, 2).toUpperCase()}
+                </div>
+              )}
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">{data.business.name}</h2>
+                <p className="text-sm text-slate-500">
+                  {data.business.industry} • {data.business.city || data.business.state || data.business.country}
+                </p>
+                <label className="inline-block mt-1 text-xs font-semibold text-emerald-700 hover:underline cursor-pointer">
+                  {uploadingLogo ? 'Uploading logo...' : 'Upload Brand Logo'}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    disabled={uploadingLogo}
+                    onChange={handleLogoUpload}
+                  />
+                </label>
+              </div>
             </div>
             <div className="flex gap-3">
               <Link
