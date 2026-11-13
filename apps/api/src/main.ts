@@ -7,12 +7,18 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
 
   app.use(helmet());
-  const configuredOrigins = (
-    process.env.CORS_ORIGIN || 'http://localhost:3000,http://127.0.0.1:3000'
-  )
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean);
+  const configuredOrigins = [
+    ...(
+      process.env.CORS_ORIGIN || 'http://localhost:3000,http://127.0.0.1:3000'
+    )
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean),
+    ...(process.env.VERCEL_URL ? [`https://${process.env.VERCEL_URL}`] : []),
+    ...(process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? [`https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`]
+      : []),
+  ];
 
   app.enableCors({
     origin: (origin, callback) => {

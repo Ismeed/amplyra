@@ -54,9 +54,7 @@ export class SocialService {
     const sig = this.signState(encodedState);
     const state = `${encodedState}.${sig}`;
 
-    const apiPublicBase =
-      this.configService.get<string>('API_PUBLIC_URL') ||
-      `http://localhost:${this.configService.get<string>('PORT') || 4000}/api/v1`;
+    const apiPublicBase = this.getApiPublicBase();
     const redirectUri = `${apiPublicBase}/social/${platform.toLowerCase()}/callback`;
 
     const authorizationUrl = await adapter.getAuthorizationUrl({
@@ -85,9 +83,7 @@ export class SocialService {
     }
 
     const adapter = this.getAdapter(params.platform);
-    const apiPublicBase =
-      this.configService.get<string>('API_PUBLIC_URL') ||
-      `http://localhost:${this.configService.get<string>('PORT') || 4000}/api/v1`;
+    const apiPublicBase = this.getApiPublicBase();
     const redirectUri = `${apiPublicBase}/social/${params.platform.toLowerCase()}/callback`;
 
     const exchanged = await adapter.exchangeAuthorizationCode({
@@ -329,5 +325,19 @@ export class SocialService {
       throw new BadRequestException('Invalid OAuth state signature');
     }
     return JSON.parse(Buffer.from(encodedState, 'base64url').toString('utf8'));
+  }
+
+  private getApiPublicBase(): string {
+    const configured = this.configService.get<string>('API_PUBLIC_URL');
+    if (configured) {
+      return configured.replace(/\/$/, '');
+    }
+    const vercelHost =
+      this.configService.get<string>('VERCEL_PROJECT_PRODUCTION_URL') ||
+      this.configService.get<string>('VERCEL_URL');
+    if (vercelHost) {
+      return `https://${vercelHost}/api/v1`;
+    }
+    return `http://localhost:${this.configService.get<string>('PORT') || 4000}/api/v1`;
   }
 }
