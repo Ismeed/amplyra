@@ -9,15 +9,20 @@ import {
   ApplicationStatus,
   ApplicationType,
   CampaignStatus,
+  CreatorTier,
   NotificationType,
   Prisma,
   VerificationStatus,
 } from '@prisma/client';
 import {
   CampaignStatus as SharedCampaignStatus,
+  CreatorTier as SharedCreatorTier,
   UserRole,
   assertCampaignTransition,
+  canCreatorAccessTier,
   canTransitionCampaignStatus,
+  getCreatorTierDefinition,
+  inferTierFromBudgetKobo,
   parseSocialPostUrl,
 } from '@amplyra/shared';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -51,6 +56,22 @@ export class CampaignsService {
       );
     }
 
+    const creatorsNeeded = dto.creatorsNeeded ?? 1;
+    const resolvedTier = dto.targetTier
+      ? getCreatorTierDefinition(dto.targetTier)
+      : dto.budgetKobo
+        ? inferTierFromBudgetKobo(Math.round(dto.budgetKobo / creatorsNeeded))
+        : null;
+
+    if (!resolvedTier) {
+      throw new BadRequestException(
+        'Please choose a creator Tier or provide a valid campaign budget',
+      );
+    }
+
+    const budgetKobo =
+      dto.budgetKobo ?? resolvedTier.fixedPriceKobo * creatorsNeeded;
+
     const campaign = await this.prisma.campaign.create({
       data: {
         businessId: business.id,
@@ -64,8 +85,9 @@ export class CampaignsService {
         targetState: dto.targetState?.trim(),
         targetCity: dto.targetCity?.trim(),
         platforms: dto.platforms,
-        budgetKobo: dto.budgetKobo,
-        creatorsNeeded: dto.creatorsNeeded ?? 1,
+        targetTier: resolvedTier.tier as unknown as CreatorTier,
+        budgetKobo,
+        creatorsNeeded,
         deliverables: dto.deliverables as unknown as Prisma.InputJsonValue,
         publicationDeadline: dto.publicationDeadline
           ? new Date(dto.publicationDeadline)
@@ -109,7 +131,11 @@ export class CampaignsService {
     }
 
     if (user.role === UserRole.CREATOR) {
-      return this.prisma.campaign.findMany({
+      const creator = await this.prisma.creator.findUnique({
+        where: { userId: user.userId },
+      });
+
+      const openCampaigns = await this.prisma.campaign.findMany({
         where: {
           status: {
             in: [CampaignStatus.PUBLISHED, CampaignStatus.APPLICATIONS_OPEN],
@@ -144,6 +170,20 @@ export class CampaignsService {
           _count: { select: { applications: true, assignments: true } },
         },
         orderBy: { createdAt: 'desc' },
+      });
+
+      const creatorTier = (creator?.tier ?? 'TIER_1') as SharedCreatorTier;
+      return openCampaigns.map((c) => {
+        const tierDef = getCreatorTierDefinition(
+          c.targetTier as unknown as SharedCreatorTier,
+        );
+        return {
+          ...c,
+          fixedTierRateKobo: tierDef.fixedPriceKobo,
+          tierLabel: tierDef.label,
+          creatorTier,
+          isEligibleForMyTier: canCreatorAccessTier(creatorTier, tierDef.tier),
+        };
       });
     }
 
@@ -309,6 +349,9 @@ export class CampaignsService {
           : {}),
         ...(dto.targetCity !== undefined ? { targetCity: dto.targetCity?.trim() } : {}),
         ...(dto.platforms !== undefined ? { platforms: dto.platforms } : {}),
+        ...(dto.targetTier !== undefined
+          ? { targetTier: dto.targetTier as unknown as CreatorTier }
+          : {}),
         ...(dto.budgetKobo !== undefined ? { budgetKobo: dto.budgetKobo } : {}),
         ...(dto.creatorsNeeded !== undefined
           ? { creatorsNeeded: dto.creatorsNeeded }
@@ -384,6 +427,16 @@ export class CampaignsService {
       throw new BadRequestException('Campaign is not currently accepting applications');
     }
 
+    const campaignTier = (campaign as any).targetTier ?? 'TIER_1';
+    if (!canCreatorAccessTier(creator.tier, campaignTier)) {
+      const requiredDef = getCreatorTierDefinition(campaignTier);
+      throw new ForbiddenException(
+        `This advert requires ${requiredDef.label} (${requiredDef.minFollowers.toLocaleString()}+ followers & ${requiredDef.minEngagementPct}%+ engagement). Grow your AI performance average to unlock higher tiers.`,
+      );
+    }
+
+    const fixedTierRateKobo = getCreatorTierDefinition(campaignTier).fixedPriceKobo;
+
     const existing = await this.prisma.campaignApplication.findUnique({
       where: {
         campaignId_creatorId: { campaignId, creatorId: creator.id },
@@ -402,7 +455,7 @@ export class CampaignsService {
         type: ApplicationType.APPLICATION,
         status: ApplicationStatus.PENDING,
         pitch: dto.pitch?.trim(),
-        proposedRateKobo: dto.proposedRateKobo,
+        proposedRateKobo: fixedTierRateKobo || campaign.budgetKobo,
         deliverablePlan: dto.deliverablePlan?.trim(),
       },
     });
@@ -435,6 +488,12 @@ export class CampaignsService {
       throw new NotFoundException('Creator not found');
     }
 
+    const campaignTier = (campaign as any).targetTier ?? 'TIER_1';
+    const fixedOfferKobo =
+      dto.offeredRateKobo ??
+      creator.fixedPriceKobo ??
+      getCreatorTierDefinition(campaignTier).fixedPriceKobo;
+
     const existing = await this.prisma.campaignApplication.findUnique({
       where: {
         campaignId_creatorId: { campaignId, creatorId: creator.id },
@@ -451,7 +510,7 @@ export class CampaignsService {
         type: ApplicationType.INVITATION,
         status: ApplicationStatus.INVITED,
         pitch: dto.message?.trim(),
-        proposedRateKobo: dto.offeredRateKobo,
+        proposedRateKobo: fixedOfferKobo,
       },
     });
 
@@ -761,6 +820,14 @@ export class CampaignsService {
       retentionDays: assignment.campaign.retentionDays,
       submittedAt: post.submittedAt ?? new Date(),
     });
+
+    if (typeof this.verification.syncPostAnalyticsInBackground === 'function') {
+      try {
+        await this.verification.syncPostAnalyticsInBackground(post.id);
+      } catch {
+        // Keep post submission fast and non-blocking on transient sync errors
+      }
+    }
 
     await this.notifications.create({
       userId: assignment.campaign.business.ownerUserId,

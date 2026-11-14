@@ -2,9 +2,15 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { CreatorTier, Prisma } from '@prisma/client';
+import {
+  computeCreatorTier,
+  getCreatorTierDefinition,
+} from '@amplyra/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { VerificationService } from '../verification/verification.service';
 import {
   CreatePortfolioItemDto,
   UpsertCreatorDto,
@@ -15,7 +21,10 @@ import { UpdateCreatorDto } from './dto/update-creator.dto';
 
 @Injectable()
 export class CreatorsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly verificationService?: VerificationService,
+  ) {}
 
   async create(userId: string, dto: UpsertCreatorDto) {
     const existing = await this.prisma.creator.findUnique({
@@ -24,6 +33,8 @@ export class CreatorsService {
     if (existing) {
       throw new ConflictException('Creator profile already exists for this user');
     }
+
+    const defaultTier = getCreatorTierDefinition('TIER_1');
 
     return this.prisma.creator.create({
       data: {
@@ -37,7 +48,9 @@ export class CreatorsService {
         categories: dto.categories ?? [],
         niches: dto.niches ?? [],
         isAvailable: dto.isAvailable ?? true,
-        minRateKobo: dto.minRateKobo ?? 0,
+        tier: CreatorTier.TIER_1,
+        fixedPriceKobo: defaultTier.fixedPriceKobo,
+        minRateKobo: dto.minRateKobo ?? defaultTier.fixedPriceKobo,
         maxRateKobo: dto.maxRateKobo,
         payoutBankName: dto.payoutBankName?.trim(),
         payoutAccountName: dto.payoutAccountName?.trim(),
@@ -130,6 +143,12 @@ export class CreatorsService {
         avgEngagementRate: dto.avgEngagementRate,
       },
     });
+    await this.refreshTierForCreator(creator.id);
+    return this.prisma.creatorSocialAccount.findUnique({
+      where: {
+        creatorId_platform: { creatorId: creator.id, platform: dto.platform },
+      },
+    });
   }
 
   async removeSocialAccount(userId: string, socialAccountId: string) {
@@ -140,6 +159,7 @@ export class CreatorsService {
     if (deleted.count === 0) {
       throw new NotFoundException('Social account not found');
     }
+    await this.refreshTierForCreator(creator.id);
     return { deleted: true };
   }
 
@@ -185,8 +205,9 @@ export class CreatorsService {
       ...(query.availableOnly !== undefined
         ? { isAvailable: query.availableOnly }
         : {}),
+      ...(query.tier ? { tier: query.tier as unknown as CreatorTier } : {}),
       ...(query.maxRateKobo !== undefined
-        ? { minRateKobo: { lte: query.maxRateKobo } }
+        ? { fixedPriceKobo: { lte: query.maxRateKobo } }
         : {}),
       ...(query.platform || query.minFollowers !== undefined
         ? {
@@ -221,7 +242,12 @@ export class CreatorsService {
           select: { assignments: true, submittedPosts: true },
         },
       },
-      orderBy: [{ verifiedAt: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [
+        { verifiedAt: 'desc' },
+        { tier: 'desc' },
+        { overallAvgEngagement: 'desc' },
+        { createdAt: 'desc' },
+      ],
       take: 50,
     });
   }
@@ -272,10 +298,58 @@ export class CreatorsService {
     return {
       creatorId: creator.id,
       displayName: creator.displayName,
+      tier: creator.tier,
+      fixedPriceKobo: creator.fixedPriceKobo,
+      overallAvgEngagement: creator.overallAvgEngagement,
+      overallAvgViews: creator.overallAvgViews,
+      completedDealsCount: creator.completedDealsCount,
+      lastBenchmarkAt: creator.lastBenchmarkAt,
       totalAssignments: assignments.length,
       completedAssignments: assignments.filter((a) => a.completedAt !== null).length,
       submittedPostsCount: posts.length,
       recentPosts: posts.slice(0, 10),
     };
+  }
+
+  private async refreshTierForCreator(creatorId: string) {
+    if (this.verificationService) {
+      return this.verificationService.recalculateCreatorBenchmarkAndTier(creatorId);
+    }
+
+    const creator = await this.prisma.creator.findUnique({
+      where: { id: creatorId },
+      include: { socialAccounts: true },
+    });
+    if (!creator) return null;
+
+    const maxFollowers = creator.socialAccounts.reduce(
+      (max, sa) => Math.max(max, sa.followersCount),
+      0,
+    );
+    const rated = creator.socialAccounts.filter(
+      (sa) => typeof sa.avgEngagementRate === 'number',
+    );
+    const profileAvgEngagementPct =
+      rated.length > 0
+        ? rated.reduce((sum, sa) => sum + (sa.avgEngagementRate ?? 0), 0) /
+          rated.length
+        : null;
+
+    const result = computeCreatorTier({
+      maxFollowers,
+      profileAvgEngagementPct,
+      overallAvgEngagementPct: creator.overallAvgEngagement,
+      completedDealsCount: creator.completedDealsCount,
+    });
+
+    return this.prisma.creator.update({
+      where: { id: creator.id },
+      data: {
+        tier: result.tier as unknown as CreatorTier,
+        fixedPriceKobo: result.fixedPriceKobo,
+        minRateKobo: result.fixedPriceKobo,
+        lastBenchmarkAt: new Date(),
+      },
+    });
   }
 }

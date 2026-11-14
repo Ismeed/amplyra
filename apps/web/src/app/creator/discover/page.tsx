@@ -1,7 +1,8 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { formatNgnFromKobo, nairaToKobo } from '@amplyra/shared';
+import { formatNgnFromKobo } from '@amplyra/shared';
+import { CheckCircle2, Lock, MapPin } from 'lucide-react';
 import { useState } from 'react';
 import { DashboardShell } from '@/components/dashboard-shell';
 import { CREATOR_NAV } from '@/components/nav-configs';
@@ -16,6 +17,11 @@ interface OpenCampaign {
   retentionDays: number;
   targetCity?: string | null;
   targetState?: string | null;
+  targetTier?: string;
+  fixedTierRateKobo?: number;
+  tierLabel?: string;
+  creatorTier?: string;
+  isEligibleForMyTier?: boolean;
   platforms: string[];
   preferredCategories: string[];
   business: {
@@ -33,7 +39,6 @@ export default function CreatorDiscoverCampaignsPage() {
   const [city, setCity] = useState('');
   const [applyingCampaign, setApplyingCampaign] = useState<OpenCampaign | null>(null);
   const [pitch, setPitch] = useState('');
-  const [proposedRateNaira, setProposedRateNaira] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const params = new URLSearchParams();
@@ -52,16 +57,14 @@ export default function CreatorDiscoverCampaignsPage() {
       await apiFetch(`/campaigns/${applyingCampaign.id}/apply`, {
         method: 'POST',
         body: JSON.stringify({
-          pitch,
-          proposedRateKobo: proposedRateNaira
-            ? nairaToKobo(Number(proposedRateNaira))
-            : undefined,
+          pitch: pitch || undefined,
         }),
       });
-      setFeedback(`Application submitted to ${applyingCampaign.business.name}!`);
+      setFeedback(
+        `Offer accepted/applied for ${applyingCampaign.business.name} at fixed ${applyingCampaign.tierLabel ?? 'Tier'} rate! Check "Active Jobs & Post Link" once approved.`,
+      );
       setApplyingCampaign(null);
       setPitch('');
-      setProposedRateNaira('');
       queryClient.invalidateQueries({ queryKey: ['creator-work'] });
     } catch (err) {
       setFeedback((err as Error).message);
@@ -70,7 +73,7 @@ export default function CreatorDiscoverCampaignsPage() {
 
   return (
     <DashboardShell
-      title="Discover Campaigns"
+      title="Available Fixed-Price Offers"
       roleLabel="Creator Workspace"
       navItems={CREATOR_NAV}
     >
@@ -79,13 +82,13 @@ export default function CreatorDiscoverCampaignsPage() {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search campaigns by keyword or product..."
+            placeholder="Search adverts by keyword or product..."
             className="px-3 py-2 rounded-lg border border-slate-300 text-sm"
           />
           <input
             value={city}
             onChange={(e) => setCity(e.target.value)}
-            placeholder="Filter by target city (e.g. Katsina, Lagos)..."
+            placeholder="Filter by target city (e.g. Katsina, Kano, Lagos)..."
             className="px-3 py-2 rounded-lg border border-slate-300 text-sm"
           />
         </div>
@@ -97,63 +100,84 @@ export default function CreatorDiscoverCampaignsPage() {
         )}
 
         {isLoading ? (
-          <p className="text-sm text-slate-500">Loading open campaigns...</p>
+          <p className="text-sm text-slate-500">Loading available offers...</p>
         ) : campaigns.length === 0 ? (
           <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-500">
-            No open campaigns matched your filters.
+            No open adverts matched your filters right now.
           </div>
         ) : (
           <div className="grid gap-5 md:grid-cols-2">
-            {campaigns.map((c) => (
-              <div
-                key={c.id}
-                className="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col justify-between gap-4"
-              >
-                <div>
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <span className="text-xs font-semibold text-emerald-700">
-                        {c.business.name} • {c.business.industry}
-                      </span>
-                      <h3 className="text-lg font-bold text-slate-900 mt-0.5">
-                        {c.title}
-                      </h3>
-                    </div>
-                    <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-slate-100 text-slate-900">
-                      {formatNgnFromKobo(c.budgetKobo)}
-                    </span>
-                  </div>
+            {campaigns.map((c) => {
+              const eligible = c.isEligibleForMyTier !== false;
+              const fixedPrice = c.fixedTierRateKobo ?? c.budgetKobo;
 
-                  <p className="mt-2 text-sm text-slate-600">{c.description}</p>
-
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {c.platforms.map((p) => (
-                      <span
-                        key={p}
-                        className="text-[11px] font-medium px-2 py-0.5 rounded bg-emerald-50 text-emerald-800"
-                      >
-                        {p}
-                      </span>
-                    ))}
-                    <span className="text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700">
-                      {c.retentionDays}-day retention
-                    </span>
-                    {c.targetCity && (
-                      <span className="text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700">
-                        {c.targetCity}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setApplyingCampaign(c)}
-                  className="w-full py-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"
+              return (
+                <div
+                  key={c.id}
+                  className="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col justify-between gap-4"
                 >
-                  Apply for Campaign
-                </button>
-              </div>
-            ))}
+                  <div>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <span className="text-xs font-semibold text-emerald-700">
+                          {c.business.name} • {c.business.industry}
+                        </span>
+                        <h3 className="text-lg font-bold text-slate-900 mt-0.5">
+                          {c.title}
+                        </h3>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 block">
+                          {formatNgnFromKobo(fixedPrice)} Fixed
+                        </span>
+                        {c.tierLabel && (
+                          <span className="text-[10px] text-slate-500 block mt-1">
+                            {c.tierLabel}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <p className="mt-2 text-sm text-slate-600">{c.description}</p>
+
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {c.platforms.map((p) => (
+                        <span
+                          key={p}
+                          className="text-[11px] font-medium px-2 py-0.5 rounded bg-emerald-50 text-emerald-800"
+                        >
+                          {p}
+                        </span>
+                      ))}
+                      {(c.targetCity || c.targetState) && (
+                        <span className="text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700 inline-flex items-center gap-1">
+                          <MapPin className="h-3 w-3" />
+                          {[c.targetCity, c.targetState].filter(Boolean).join(', ')}
+                        </span>
+                      )}
+                      <span className="text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                        {c.retentionDays}-day withdrawal lock
+                      </span>
+                    </div>
+                  </div>
+
+                  {eligible ? (
+                    <button
+                      onClick={() => setApplyingCampaign(c)}
+                      className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer inline-flex items-center justify-center gap-1.5"
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      Apply at Fixed {formatNgnFromKobo(fixedPrice)}
+                    </button>
+                  ) : (
+                    <div className="w-full py-2.5 px-3 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium inline-flex items-center justify-center gap-1.5">
+                      <Lock className="h-3.5 w-3.5" />
+                      Requires {c.tierLabel || c.targetTier} (Grow followers &amp; AI ER%)
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -163,28 +187,28 @@ export default function CreatorDiscoverCampaignsPage() {
               <h3 className="text-lg font-bold text-slate-900">
                 Apply to {applyingCampaign.title}
               </h3>
-              <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Your Proposed Rate (NGN, optional)
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  value={proposedRateNaira}
-                  onChange={(e) => setProposedRateNaira(e.target.value)}
-                  placeholder="Leave blank to accept campaign budget"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-                />
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 space-y-1">
+                <p>
+                  <strong>Fixed Job Rate:</strong>{' '}
+                  {formatNgnFromKobo(
+                    applyingCampaign.fixedTierRateKobo ?? applyingCampaign.budgetKobo,
+                  )}{' '}
+                  ({applyingCampaign.tierLabel ?? applyingCampaign.targetTier})
+                </p>
+                <p>
+                  Payout is locked in escrow and unlocked for withdrawal{' '}
+                  {applyingCampaign.retentionDays} days after you submit your live post link.
+                </p>
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">
-                  Pitch & Content Concept
+                  Quick Note for the Business (optional)
                 </label>
                 <textarea
                   rows={3}
                   value={pitch}
                   onChange={(e) => setPitch(e.target.value)}
-                  placeholder="Explain how you will present this product to your audience..."
+                  placeholder="Share how you will promote this product to your audience..."
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
                 />
               </div>
@@ -199,7 +223,7 @@ export default function CreatorDiscoverCampaignsPage() {
                   onClick={submitApplication}
                   className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold cursor-pointer"
                 >
-                  Submit Application
+                  Confirm &amp; Apply
                 </button>
               </div>
             </div>

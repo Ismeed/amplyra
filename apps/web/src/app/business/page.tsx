@@ -1,7 +1,12 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { StoragePurpose, formatNgnFromKobo, nairaToKobo } from '@amplyra/shared';
+import {
+  StoragePurpose,
+  formatNgnFromKobo,
+  getCreatorTierDefinition,
+  nairaToKobo,
+} from '@amplyra/shared';
 import Link from 'next/link';
 import { ChangeEvent, FormEvent, useState } from 'react';
 import { DashboardShell } from '@/components/dashboard-shell';
@@ -33,7 +38,9 @@ interface BusinessDashboardResponse {
     id: string;
     title: string;
     status: string;
+    targetTier?: string;
     budgetKobo: number;
+    funding?: { status: string } | null;
     _count: { applications: number; assignments: number; posts: number };
   }>;
   recentPosts: Array<{
@@ -41,8 +48,23 @@ interface BusinessDashboardResponse {
     platform: string;
     postUrl: string;
     verificationStatus: string;
+    retentionUntil: string;
+    aiInsightSummary?: string | null;
+    lastSyncedAt?: string | null;
     campaign: { id: string; title: string };
-    creator: { id: string; displayName: string };
+    creator: {
+      id: string;
+      displayName: string;
+      tier?: string;
+      overallAvgEngagement?: number | null;
+    };
+    metricSnapshots?: Array<{
+      metricSource: string;
+      views: number | null;
+      likes: number | null;
+      comments: number | null;
+      shares: number | null;
+    }>;
   }>;
 }
 
@@ -60,6 +82,7 @@ export default function BusinessOverviewPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [syncingAi, setSyncingAi] = useState(false);
 
   const hasProfile = !!user?.business;
 
@@ -68,6 +91,19 @@ export default function BusinessOverviewPage() {
     queryFn: () => apiFetch<BusinessDashboardResponse>('/businesses/dashboard'),
     enabled: !!user && hasProfile,
   });
+
+  async function refreshAgenticInsights() {
+    setSyncingAi(true);
+    setFormError(null);
+    try {
+      await apiFetch('/campaigns/agentic-sync', { method: 'POST' });
+      await queryClient.invalidateQueries({ queryKey: ['business-dashboard'] });
+    } catch (err) {
+      setFormError((err as Error).message);
+    } finally {
+      setSyncingAi(false);
+    }
+  }
 
   async function handleCreateProfile(e: FormEvent) {
     e.preventDefault();
@@ -345,10 +381,18 @@ export default function BusinessOverviewPage() {
 
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="bg-white rounded-2xl border border-slate-200 p-5">
-              <h3 className="font-semibold text-slate-900 mb-3">Recent Campaigns</h3>
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <h3 className="font-semibold text-slate-900">Recent Adverts</h3>
+                <Link
+                  href="/business/campaigns"
+                  className="text-xs font-semibold text-emerald-700 hover:underline"
+                >
+                  + New Advert
+                </Link>
+              </div>
               {data.recentCampaigns.length === 0 ? (
                 <p className="text-sm text-slate-500">
-                  No campaigns yet. Launch your first campaign to start matching with creators.
+                  No adverts yet. Create your first advert brief and set a fixed Creator Tier budget.
                 </p>
               ) : (
                 <div className="space-y-3">
@@ -360,12 +404,13 @@ export default function BusinessOverviewPage() {
                       <div>
                         <p className="font-semibold text-sm text-slate-900">{c.title}</p>
                         <p className="text-xs text-slate-500 mt-0.5">
-                          {formatNgnFromKobo(c.budgetKobo)} • {c._count.applications} applications •{' '}
-                          {c._count.posts} posts
+                          {formatNgnFromKobo(c.budgetKobo)}
+                          {c.targetTier ? ` • ${getCreatorTierDefinition(c.targetTier).shortLabel}` : ''} •{' '}
+                          {c._count.applications} applicants • {c._count.posts} live posts
                         </p>
                       </div>
                       <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
-                        {c.status}
+                        {c.funding?.status === 'HELD_BY_PARTNER' ? 'ESCROW HELD' : c.status}
                       </span>
                     </div>
                   ))}
@@ -374,37 +419,96 @@ export default function BusinessOverviewPage() {
             </div>
 
             <div className="bg-white rounded-2xl border border-slate-200 p-5">
-              <h3 className="font-semibold text-slate-900 mb-3">Latest Submitted Posts</h3>
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div>
+                  <h3 className="font-semibold text-slate-900">
+                    Amplyra Agentic AI • Post Analytics
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Automatically tracks creator post links and accessible engagement insights.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={syncingAi}
+                  onClick={refreshAgenticInsights}
+                  className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white text-xs font-semibold cursor-pointer shrink-0"
+                >
+                  {syncingAi ? 'Syncing AI...' : 'Refresh AI Insights'}
+                </button>
+              </div>
               {data.recentPosts.length === 0 ? (
                 <p className="text-sm text-slate-500">
-                  Submitted creator post URLs will appear here once deliverables go live.
+                  Once a Creator posts and submits their link, Amplyra Agentic AI will report insights here.
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {data.recentPosts.map((p) => (
-                    <div
-                      key={p.id}
-                      className="p-3.5 rounded-xl border border-slate-100 bg-slate-50/70"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold text-slate-900">
-                          {p.creator.displayName} • {p.platform}
-                        </span>
-                        <span className="text-[11px] px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">
-                          {p.verificationStatus}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-500 mt-1">{p.campaign.title}</p>
-                      <a
-                        href={p.postUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs text-emerald-700 hover:underline mt-1 inline-block break-all"
+                  {data.recentPosts.map((p) => {
+                    const snap = p.metricSnapshots?.[0];
+                    const daysLeft = Math.max(
+                      0,
+                      Math.ceil((new Date(p.retentionUntil).getTime() - Date.now()) / 86_400_000),
+                    );
+                    return (
+                      <div
+                        key={p.id}
+                        className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/80 space-y-2"
                       >
-                        {p.postUrl}
-                      </a>
-                    </div>
-                  ))}
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-slate-900">
+                            {p.creator.displayName}
+                            {p.creator.tier ? ` (${getCreatorTierDefinition(p.creator.tier).shortLabel})` : ''} • {p.platform}
+                          </span>
+                          <span className="text-[11px] px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-medium">
+                            {daysLeft > 0 ? `${daysLeft}d left in hold` : '15d hold complete'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-medium text-slate-500">{p.campaign.title}</p>
+                        {p.aiInsightSummary && (
+                          <p className="text-xs text-slate-800 bg-white border border-slate-200 rounded-lg p-2.5 leading-relaxed">
+                            {p.aiInsightSummary}
+                          </p>
+                        )}
+                        {snap && (
+                          <div className="flex flex-wrap gap-2 text-[11px] text-slate-600">
+                            {snap.views !== null && (
+                              <span className="px-2 py-0.5 rounded bg-white border border-slate-200">
+                                Views: <strong>{snap.views.toLocaleString()}</strong>
+                              </span>
+                            )}
+                            {snap.likes !== null && (
+                              <span className="px-2 py-0.5 rounded bg-white border border-slate-200">
+                                Likes: <strong>{snap.likes.toLocaleString()}</strong>
+                              </span>
+                            )}
+                            {snap.comments !== null && (
+                              <span className="px-2 py-0.5 rounded bg-white border border-slate-200">
+                                Comments: <strong>{snap.comments.toLocaleString()}</strong>
+                              </span>
+                            )}
+                            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                              Source: {snap.metricSource}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between gap-2 text-[11px]">
+                          <a
+                            href={p.postUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-emerald-700 hover:underline truncate max-w-[75%]"
+                          >
+                            {p.postUrl}
+                          </a>
+                          {p.lastSyncedAt && (
+                            <span className="text-slate-400 shrink-0">
+                              Synced {new Date(p.lastSyncedAt).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

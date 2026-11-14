@@ -13,7 +13,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { SocialPlatform } from '@amplyra/shared';
+import { CreatorTier, SocialPlatform } from '@amplyra/shared';
 
 export class CampaignDeliverableDto {
   @IsEnum(SocialPlatform)
@@ -75,9 +75,14 @@ export class CreateCampaignDto {
   @IsEnum(SocialPlatform, { each: true })
   platforms!: SocialPlatform[];
 
+  @IsOptional()
+  @IsEnum(CreatorTier)
+  targetTier?: CreatorTier;
+
+  @IsOptional()
   @IsInt()
   @Min(100)
-  budgetKobo!: number;
+  budgetKobo?: number;
 
   @IsOptional()
   @IsInt()

@@ -7,7 +7,7 @@ import {
   IsString,
   Min,
 } from 'class-validator';
-import { SocialPlatform } from '@amplyra/shared';
+import { CreatorTier, SocialPlatform } from '@amplyra/shared';
 
 export class DiscoverCreatorsQueryDto {
   @IsOptional()
@@ -50,6 +50,10 @@ export class DiscoverCreatorsQueryDto {
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   availableOnly?: boolean;
+
+  @IsOptional()
+  @IsEnum(CreatorTier)
+  tier?: CreatorTier;
 
   @IsOptional()
   @IsString()

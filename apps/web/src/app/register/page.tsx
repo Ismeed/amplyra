@@ -73,7 +73,7 @@ function RegisterForm() {
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            Creator / Promoter
+            Creator
           </button>
         </div>
 

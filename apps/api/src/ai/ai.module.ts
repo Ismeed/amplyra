@@ -6,6 +6,6 @@ import { AiService } from './ai.service';
 @Module({
   controllers: [AiController, ContentCalendarController],
   providers: [AiProviderService, AiService],
-  exports: [AiService],
+  exports: [AiService, AiProviderService],
 })
 export class AiModule {}

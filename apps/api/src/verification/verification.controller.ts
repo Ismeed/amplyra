@@ -48,6 +48,12 @@ export class VerificationController {
     return this.verificationService.runVerification(user, id);
   }
 
+  @Post('agentic-sync')
+  @Roles(UserRole.BUSINESS, UserRole.ADMIN)
+  triggerAgenticSync(@CurrentUser() user: AuthUser) {
+    return this.verificationService.runAgenticSyncForUser(user);
+  }
+
   @Post('reports/:reportId/flag')
   @Roles(UserRole.BUSINESS, UserRole.ADMIN)
   flagReport(

@@ -76,6 +76,15 @@ export class PaymentsController {
     return this.paymentsService.releasePayment(user, campaignId, dto);
   }
 
+  @Post(':campaignId/withdraw')
+  @Roles(UserRole.CREATOR)
+  withdrawEarnings(
+    @CurrentUser() user: AuthUser,
+    @Param('campaignId') campaignId: string,
+  ) {
+    return this.paymentsService.withdrawCreatorEarnings(user.userId, campaignId);
+  }
+
   @Post(':campaignId/dispute')
   @Roles(UserRole.BUSINESS, UserRole.CREATOR)
   openDispute(

@@ -10,31 +10,31 @@ import Link from 'next/link';
 
 const pillars = [
   {
-    title: 'AI Marketing Department',
+    title: 'Targeted Location Promotions',
     description:
-      'Generate marketing strategies, brand-consistent copy, approval-gated content calendars, and grounded performance analyses tailored to your SME.',
-    status: 'Live in V1 MVP',
-    icon: Sparkles,
-  },
-  {
-    title: 'Creator & Influencer Marketplace',
-    description:
-      'Discover vetted creators by Nigerian city, state, niche, platform, audience size, and transparent promotional rates.',
-    status: 'Live in V1 MVP',
+      'Set your budget, advert brief, and target city—and reach real local or national audiences through Creators without celebrity ad spend.',
+    status: 'Fixed Tier Pricing',
     icon: Users,
   },
   {
-    title: 'Campaign Verification Engine',
+    title: 'Tiered Creator Monetization',
     description:
-      'Track deliverables, public post URLs, 15-day retention periods, and five-day reporting milestones with clear metric provenance.',
-    status: 'Live in V1 MVP',
-    icon: BarChart3,
+      'Creators qualify for fixed platform job prices (₦15,000–₦85,000) based on follower count and AI-verified engagement from completed posts.',
+    status: 'Merit-Based Tiers',
+    icon: CheckCircle2,
   },
   {
-    title: 'Protected Campaign Payments',
+    title: 'Amplyra Agentic AI Insights',
     description:
-      'Milestone-driven funding, 10% platform fee transparency, dispute resolution, and creator payout tracking integrated with regulated payment partners.',
-    status: 'Live in V1 MVP',
+      'Creators simply accept an offer, post, and submit the post link. Amplyra Agentic AI reports accessible post analytics into the business dashboard.',
+    status: 'Background Sync',
+    icon: Sparkles,
+  },
+  {
+    title: '15-Day Escrow & AI Averaging',
+    description:
+      'Escrowed funds unlock for Creator withdrawal 15 days after the post goes live—then AI averages the deal insights to keep Tier rankings honest.',
+    status: '15-Day Protection',
     icon: ShieldCheck,
   },
 ];
@@ -77,13 +77,10 @@ export default function HomePage() {
               Nigeria-First • Built for SMEs & Creators
             </span>
             <h1 className="mt-6 text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-white leading-[1.1]">
-              Your Marketing Team. Powered by AI. Amplified by Creators.
+              Reach Your Exact Audience. Powered by Creators &amp; Agentic AI.
             </h1>
             <p className="mt-6 text-lg text-slate-300 leading-relaxed max-w-2xl">
-              Amplyra AI unifies AI-powered marketing execution with a transparent
-              creator collaboration marketplace—so growing businesses can launch
-              campaigns, discover local promoters, and verify campaign deliverables
-              in one operating system.
+              Amplyra AI connects budget-conscious Businesses with vetted local Creators in targeted cities. Fixed tier pricing, zero bidding friction, automatic Agentic AI analytics on your dashboard, and 15-day post protection.
             </p>
 
             <div className="mt-8 flex flex-wrap gap-4">
@@ -147,11 +144,11 @@ export default function HomePage() {
               </p>
               <ul className="mt-6 space-y-3 text-sm text-slate-300">
                 {[
-                  'Role-based dashboards for Businesses, Creators, and Admins',
-                  'Creator discovery filtered by Nigerian state/city, category, platform, followers & NGN rate',
-                  'Campaign funding ledger in kobo with 10% platform fee split & Paystack partner webhooks',
-                  'Day 0 / 5 / 10 / 15 reporting schedule with OAuth analytics + labeled creator evidence',
-                  'AI Strategist, Brand-Toned Content Studio, Approval-Gated Calendar & Grounded Analyst',
+                  'Businesses set budget, advert brief, and target city—and browse Creators by Tier & engagement history',
+                  'Fixed Tier job pricing (Tier 1 ₦15k to Tier 4 ₦85k) with zero awkward negotiation',
+                  'Creators accept offers, post on social, and submit the post URL in seconds',
+                  'Amplyra Agentic AI reports accessible post analytics automatically in the Business dashboard',
+                  'Creators withdraw payout 15 days after posting; AI averages insights after every settled deal',
                 ].map((item) => (
                   <li key={item} className="flex items-start gap-2.5">
                     <CheckCircle2 className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />

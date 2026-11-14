@@ -2,10 +2,13 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  CREATOR_TIER_DEFINITIONS,
+  CreatorTier,
   SocialPlatform,
   StoragePurpose,
   calculatePlatformFeeSplit,
   formatNgnFromKobo,
+  getCreatorTierDefinition,
   nairaToKobo,
 } from '@amplyra/shared';
 import { ChangeEvent, FormEvent, useState } from 'react';
@@ -21,9 +24,11 @@ interface CampaignDetail {
   productOrService: string;
   description: string;
   status: string;
+  targetTier?: string;
   budgetKobo: number;
   retentionDays: number;
   targetCity?: string | null;
+  targetState?: string | null;
   platforms: string[];
   applications?: Array<{
     id: string;
@@ -31,7 +36,7 @@ interface CampaignDetail {
     type: string;
     pitch?: string | null;
     proposedRateKobo?: number | null;
-    creator: { id: string; displayName: string };
+    creator: { id: string; displayName: string; tier?: string };
   }>;
   posts?: Array<{
     id: string;
@@ -40,6 +45,8 @@ interface CampaignDetail {
     platformPostId?: string | null;
     verificationStatus: string;
     retentionUntil: string;
+    aiInsightSummary?: string | null;
+    lastSyncedAt?: string | null;
     creator: { id: string; displayName: string };
   }>;
 }
@@ -111,9 +118,11 @@ export default function BusinessCampaignsPage() {
   const [title, setTitle] = useState('');
   const [productOrService, setProductOrService] = useState('');
   const [description, setDescription] = useState('');
+  const [targetState, setTargetState] = useState('Katsina');
   const [targetCity, setTargetCity] = useState('Katsina');
-  const [budgetNaira, setBudgetNaira] = useState('50000');
-  const [deliverableFormat, setDeliverableFormat] = useState('60s Instagram Reel');
+  const [targetTier, setTargetTier] = useState<CreatorTier>(CreatorTier.TIER_2);
+  const [budgetNaira, setBudgetNaira] = useState('25000');
+  const [deliverableFormat, setDeliverableFormat] = useState('60s Short Video / Reel');
   const [platforms, setPlatforms] = useState<SocialPlatform[]>([
     SocialPlatform.INSTAGRAM,
     SocialPlatform.TIKTOK,
@@ -213,7 +222,9 @@ export default function BusinessCampaignsPage() {
           productOrService,
           description,
           targetCountry: 'Nigeria',
-          targetCity,
+          targetState: targetState || undefined,
+          targetCity: targetCity || undefined,
+          targetTier,
           platforms,
           budgetKobo: nairaToKobo(Number(budgetNaira)),
           retentionDays: 15,
@@ -350,13 +361,13 @@ export default function BusinessCampaignsPage() {
       <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-slate-600">
-            Manage briefs, fund protected campaigns, inspect 5-day verification reports, and release payouts.
+            Create location-targeted adverts at fixed Creator Tiers, fund escrow, and track Amplyra Agentic AI post insights.
           </p>
           <button
             onClick={() => setShowCreate((v) => !v)}
             className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold cursor-pointer"
           >
-            {showCreate ? 'Close Form' : '+ New Campaign'}
+            {showCreate ? 'Close Form' : '+ Create Advert'}
           </button>
         </div>
 
@@ -372,7 +383,7 @@ export default function BusinessCampaignsPage() {
             className="bg-white rounded-2xl border border-slate-200 p-6 grid gap-4 sm:grid-cols-2"
           >
             <h3 className="sm:col-span-2 text-base font-bold text-slate-900">
-              Create Campaign Brief
+              Create Location-Targeted Advert
             </h3>
             {error && (
               <div className="sm:col-span-2 p-3 rounded-lg bg-rose-50 text-rose-700 text-sm">
@@ -381,14 +392,14 @@ export default function BusinessCampaignsPage() {
             )}
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">
-                Campaign Title
+                Advert Title
               </label>
               <input
                 required
                 minLength={3}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. Lagos Ramadan Gift Box Launch"
+                placeholder="e.g. Katsina Harmattan Launch"
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
               />
             </div>
@@ -400,20 +411,53 @@ export default function BusinessCampaignsPage() {
                 required
                 value={productOrService}
                 onChange={(e) => setProductOrService(e.target.value)}
-                placeholder="e.g. Curated Gift Box"
+                placeholder="e.g. Tailored Kaftans"
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
               />
             </div>
+
+            <div className="sm:col-span-2 space-y-2">
+              <label className="block text-xs font-medium text-slate-700">
+                Select Creator Tier &amp; Fixed Per-Post Budget
+              </label>
+              <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+                {CREATOR_TIER_DEFINITIONS.map((t) => {
+                  const selected = targetTier === t.tier;
+                  return (
+                    <button
+                      key={t.tier}
+                      type="button"
+                      onClick={() => {
+                        setTargetTier(t.tier);
+                        setBudgetNaira(String(t.fixedPriceKobo / 100));
+                      }}
+                      className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+                        selected
+                          ? 'border-emerald-600 bg-emerald-50 ring-2 ring-emerald-500/20'
+                          : 'border-slate-200 bg-slate-50/70 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-xs font-bold text-slate-900">
+                        <span>{t.label}</span>
+                        <span className="text-emerald-700">
+                          {formatNgnFromKobo(t.fixedPriceKobo)}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-1">{t.description}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">
-                Campaign Budget (NGN)
+                Target State
               </label>
               <input
-                type="number"
-                required
-                min={1000}
-                value={budgetNaira}
-                onChange={(e) => setBudgetNaira(e.target.value)}
+                value={targetState}
+                onChange={(e) => setTargetState(e.target.value)}
+                placeholder="e.g. Katsina, Kano, Lagos"
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
               />
             </div>
@@ -424,6 +468,7 @@ export default function BusinessCampaignsPage() {
               <input
                 value={targetCity}
                 onChange={(e) => setTargetCity(e.target.value)}
+                placeholder="Leave blank for nationwide reach"
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
               />
             </div>
@@ -515,7 +560,9 @@ export default function BusinessCampaignsPage() {
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
-                    {formatNgnFromKobo(c.budgetKobo)} • {c.retentionDays}d retention
+                    {formatNgnFromKobo(c.budgetKobo)}
+                    {c.targetTier ? ` • ${getCreatorTierDefinition(c.targetTier).shortLabel}` : ''} •{' '}
+                    {c.retentionDays}d withdrawal lock
                   </p>
                   {c.status === 'DRAFT' && (
                     <button
@@ -624,7 +671,7 @@ export default function BusinessCampaignsPage() {
                         onClick={() => runVerify(selectedCampaign.id)}
                         className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
                       >
-                        Run Verification Sync
+                        Refresh Agentic AI Sync
                       </button>
                     </div>
 
@@ -853,6 +900,11 @@ export default function BusinessCampaignsPage() {
                           >
                             {post.postUrl}
                           </a>
+                          {post.aiInsightSummary && (
+                            <p className="mt-2 p-2.5 rounded-lg bg-white border border-slate-200 text-slate-800">
+                              {post.aiInsightSummary}
+                            </p>
+                          )}
                         </div>
                       ))}
                     </div>

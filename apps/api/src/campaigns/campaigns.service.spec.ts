@@ -171,4 +171,45 @@ describe('CampaignsService', () => {
       ),
     ).rejects.toThrow(ForbiddenException);
   });
+
+  it('rejects a TIER_1 creator applying to a TIER_3 advert and allows eligible creators at fixed Tier price', async () => {
+    const { service, mockPrisma } = buildService();
+    mockPrisma.creator.findUnique.mockResolvedValue({
+      id: 'cr-1',
+      userId: 'user-cr-1',
+      displayName: 'Starter Voice',
+      tier: 'TIER_1',
+    });
+    mockPrisma.campaign.findUnique.mockResolvedValue({
+      id: 'camp-tier3',
+      title: 'Kano Capsule Launch',
+      status: CampaignStatus.APPLICATIONS_OPEN,
+      targetTier: 'TIER_3',
+      budgetKobo: 5_000_000,
+      business: { ownerUserId: 'user-biz-1' },
+    });
+
+    await expect(
+      service.apply('user-cr-1', 'camp-tier3', { pitch: 'Ready to post!' }),
+    ).rejects.toThrow(ForbiddenException);
+
+    mockPrisma.creator.findUnique.mockResolvedValue({
+      id: 'cr-2',
+      userId: 'user-cr-2',
+      displayName: 'Zainab Styles',
+      tier: 'TIER_3',
+    });
+    mockPrisma.campaignApplication.findUnique.mockResolvedValue(null);
+    mockPrisma.campaignApplication.create.mockImplementation(async ({ data }: any) => ({
+      id: 'app-1',
+      ...data,
+    }));
+
+    const app = await service.apply('user-cr-2', 'camp-tier3', {
+      pitch: 'Can deliver on TikTok & IG',
+      proposedRateKobo: 9_999_999,
+    });
+
+    expect(app.proposedRateKobo).toBe(5_000_000);
+  });
 });

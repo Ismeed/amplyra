@@ -147,4 +147,58 @@ describe('VerificationService & TokenCryptoService', () => {
       },
     });
   });
+
+  it('averages overall post insight data after deal completion and recalculates Creator Tier', async () => {
+    const mockPrisma: any = {
+      creator: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'cr-1',
+          userId: 'user-cr-1',
+          tier: 'TIER_1',
+          socialAccounts: [{ followersCount: 35000, avgEngagementRate: 2.0 }],
+        }),
+        update: jest.fn().mockImplementation(async ({ data }: any) => ({
+          id: 'cr-1',
+          ...data,
+        })),
+      },
+      campaignAssignment: {
+        count: jest.fn().mockResolvedValue(2),
+      },
+      campaignPost: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'post-1',
+            metricSnapshots: [
+              { views: 10000, reach: null, likes: 400, comments: 50, shares: 30, saves: 20 },
+            ],
+          },
+          {
+            id: 'post-2',
+            metricSnapshots: [
+              { views: 20000, reach: null, likes: 600, comments: 100, shares: 60, saves: 40 },
+            ],
+          },
+        ]),
+      },
+    };
+
+    const mockNotifications = { create: jest.fn().mockResolvedValue({}) };
+    const service = new VerificationService(
+      mockPrisma,
+      {} as any,
+      mockNotifications as any,
+    );
+
+    const updated = await service.recalculateCreatorBenchmarkAndTier('cr-1');
+
+    // post-1 ER = 500/10000 = 5.0%, post-2 ER = 800/20000 = 4.0% => overall avg = 4.5%, avg views = 15000
+    // 35,000 followers + 4.5% ER qualifies for TIER_3 (30k+ & >= 4.0% ER -> ₦50,000 / 5_000_000 kobo)
+    expect(updated?.overallAvgEngagement).toBe(4.5);
+    expect(updated?.overallAvgViews).toBe(15000);
+    expect(updated?.completedDealsCount).toBe(2);
+    expect(updated?.tier).toBe('TIER_3');
+    expect(updated?.fixedPriceKobo).toBe(5_000_000);
+    expect(mockNotifications.create).toHaveBeenCalledTimes(1);
+  });
 });

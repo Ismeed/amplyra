@@ -11,7 +11,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { SocialPlatform } from '@amplyra/shared';
+import { CreatorTier, SocialPlatform } from '@amplyra/shared';
 import { CampaignDeliverableDto } from './campaign.dto';
 
 export class UpdateCampaignDto {
@@ -60,6 +60,10 @@ export class UpdateCampaignDto {
   @ArrayMinSize(1)
   @IsEnum(SocialPlatform, { each: true })
   platforms?: SocialPlatform[];
+
+  @IsOptional()
+  @IsEnum(CreatorTier)
+  targetTier?: CreatorTier;
 
   @IsOptional()
   @IsInt()

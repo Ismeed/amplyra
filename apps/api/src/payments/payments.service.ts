@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -26,6 +27,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { VerificationService } from '../verification/verification.service';
 import {
   FundCampaignDto,
   OpenDisputeDto,
@@ -39,6 +41,7 @@ export class PaymentsService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly notifications: NotificationsService,
+    @Optional() private readonly verificationService?: VerificationService,
   ) {}
 
   async fundCampaign(userId: string, dto: FundCampaignDto) {
@@ -293,6 +296,8 @@ export class PaymentsService {
           heldKobo: 0,
           releasedKobo: 0,
           disputedKobo: 0,
+          withdrawableKobo: 0,
+          lockedKobo: 0,
         },
         items: [],
       };
@@ -301,25 +306,78 @@ export class PaymentsService {
     const assignments = await this.prisma.campaignAssignment.findMany({
       where: { creatorId: creator.id },
       include: {
+        posts: {
+          orderBy: { submittedAt: 'desc' },
+        },
         campaign: {
           include: {
             business: { select: { id: true, name: true } },
-            funding: true,
+            funding: { include: { disputes: true } },
           },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
 
+    const now = new Date();
     let heldKobo = 0;
     let releasedKobo = 0;
     let disputedKobo = 0;
+    let withdrawableKobo = 0;
+    let lockedKobo = 0;
 
     const items = assignments.map((a) => {
       const split = calculatePlatformFeeSplit(a.agreedRateKobo, 1000);
       const fundingStatus = a.campaign.funding?.status ?? null;
+      const posts = a.posts ?? [];
+      const hasSubmittedPost = posts.length > 0;
+      const latestSubmittedAt = hasSubmittedPost
+        ? new Date(
+            Math.max(...posts.map((p) => new Date(p.submittedAt).getTime())),
+          )
+        : null;
+      const unlockAt = hasSubmittedPost
+        ? new Date(
+            Math.max(...posts.map((p) => new Date(p.retentionUntil).getTime())),
+          )
+        : null;
+      const daysRemaining = unlockAt
+        ? Math.max(0, Math.ceil((unlockAt.getTime() - now.getTime()) / 86_400_000))
+        : null;
+
+      const hasOpenDispute = (a.campaign.funding?.disputes ?? []).some(
+        (d) =>
+          d.status === DisputeStatus.OPEN ||
+          d.status === DisputeStatus.UNDER_REVIEW,
+      );
+
+      const canWithdraw =
+        fundingStatus === FundingStatus.HELD_BY_PARTNER &&
+        hasSubmittedPost &&
+        !hasOpenDispute &&
+        unlockAt !== null &&
+        unlockAt.getTime() <= now.getTime();
+
+      let withdrawBlockedReason: string | null = null;
+      if (fundingStatus === FundingStatus.RELEASED) {
+        withdrawBlockedReason = 'Already withdrawn';
+      } else if (hasOpenDispute || fundingStatus === FundingStatus.DISPUTED) {
+        withdrawBlockedReason = 'Under dispute review';
+      } else if (fundingStatus !== FundingStatus.HELD_BY_PARTNER) {
+        withdrawBlockedReason = 'Awaiting business escrow deposit';
+      } else if (!hasSubmittedPost) {
+        withdrawBlockedReason = 'Submit your live social post link to start 15-day timer';
+      } else if (!canWithdraw && daysRemaining !== null) {
+        withdrawBlockedReason = `Locked for 15-day post verification (${daysRemaining} day(s) left)`;
+      }
+
       if (fundingStatus === FundingStatus.HELD_BY_PARTNER) {
         heldKobo += split.creatorNetKobo;
+        if (canWithdraw) {
+          withdrawableKobo += split.creatorNetKobo;
+        } else {
+          lockedKobo += split.creatorNetKobo;
+        }
       } else if (fundingStatus === FundingStatus.RELEASED) {
         releasedKobo += split.creatorNetKobo;
       } else if (fundingStatus === FundingStatus.DISPUTED) {
@@ -337,13 +395,98 @@ export class PaymentsService {
         netEarningsKobo: split.creatorNetKobo,
         fundingStatus,
         releasedAt: a.campaign.funding?.releasedAt ?? null,
+        hasSubmittedPost,
+        postSubmittedAt: latestSubmittedAt ? latestSubmittedAt.toISOString() : null,
+        unlockAt: unlockAt ? unlockAt.toISOString() : null,
+        daysRemaining,
+        canWithdraw,
+        withdrawBlockedReason,
       };
     });
 
     return {
-      summary: { heldKobo, releasedKobo, disputedKobo },
+      summary: {
+        heldKobo,
+        releasedKobo,
+        disputedKobo,
+        withdrawableKobo,
+        lockedKobo,
+      },
       items,
     };
+  }
+
+  async withdrawCreatorEarnings(userId: string, campaignId: string) {
+    const creator = await this.prisma.creator.findUnique({
+      where: { userId },
+    });
+    if (!creator) {
+      throw new NotFoundException('Creator profile not found');
+    }
+
+    const campaign = await this.prisma.campaign.findUnique({
+      where: { id: campaignId },
+      include: {
+        business: true,
+        posts: { where: { creatorId: creator.id } },
+        assignments: {
+          where: { creatorId: creator.id },
+          include: { creator: true },
+        },
+        funding: { include: { disputes: true } },
+      },
+    });
+    if (!campaign || campaign.assignments.length === 0) {
+      throw new ForbiddenException('You do not have an assignment on this campaign');
+    }
+    if (!campaign.funding) {
+      throw new BadRequestException('Campaign has not been funded yet');
+    }
+    if (campaign.funding.status === FundingStatus.RELEASED) {
+      throw new ConflictException('Earnings have already been withdrawn');
+    }
+    if (
+      campaign.funding.disputes.some(
+        (d) =>
+          d.status === DisputeStatus.OPEN ||
+          d.status === DisputeStatus.UNDER_REVIEW,
+      )
+    ) {
+      throw new BadRequestException(
+        'Cannot withdraw while an open dispute exists on this campaign',
+      );
+    }
+    if (campaign.posts.length === 0) {
+      throw new BadRequestException(
+        'Submit your live social post link before withdrawing earnings',
+      );
+    }
+
+    const now = new Date();
+    const unlockAt = new Date(
+      Math.max(...campaign.posts.map((p) => new Date(p.retentionUntil).getTime())),
+    );
+    if (unlockAt > now) {
+      const daysRemaining = Math.ceil(
+        (unlockAt.getTime() - now.getTime()) / 86_400_000,
+      );
+      throw new BadRequestException(
+        `Withdrawal is locked for 15 days from posting. Unlocks on ${unlockAt.toISOString().slice(0, 10)} (${daysRemaining} day(s) remaining).`,
+      );
+    }
+
+    return this.executePayoutSettlement({
+      actorUserId: userId,
+      campaignId: campaign.id,
+      campaignTitle: campaign.title,
+      businessOwnerUserId: campaign.business.ownerUserId,
+      funding: campaign.funding,
+      creatorIds: [creator.id],
+      creatorUserIds: [userId],
+      auditAction: 'CREATOR_WITHDRAWAL_RELEASED',
+      idempotencyPrefix: 'withdraw',
+      notifyBusinessMessage: `${creator.displayName} completed the 15-day post window and withdrew ${campaign.title} payout.`,
+    });
   }
 
   async releasePayment(
@@ -402,9 +545,38 @@ export class PaymentsService {
       );
     }
 
+    return this.executePayoutSettlement({
+      actorUserId: user.userId,
+      campaignId: campaign.id,
+      campaignTitle: campaign.title,
+      businessOwnerUserId: campaign.business.ownerUserId,
+      funding: campaign.funding,
+      creatorIds: campaign.assignments.map((a) => a.creatorId),
+      creatorUserIds: campaign.assignments.map((a) => a.creator.userId),
+      auditAction: 'PAYMENT_RELEASED',
+      idempotencyPrefix: 'release',
+    });
+  }
+
+  private async executePayoutSettlement(params: {
+    actorUserId: string;
+    campaignId: string;
+    campaignTitle: string;
+    businessOwnerUserId: string;
+    funding: {
+      id: string;
+      creatorNetKobo: number;
+      providerReference: string;
+    };
+    creatorIds: string[];
+    creatorUserIds: string[];
+    auditAction: string;
+    idempotencyPrefix: string;
+    notifyBusinessMessage?: string;
+  }) {
     const updated = await this.prisma.$transaction(async (tx) => {
       const releasedFunding = await tx.campaignFunding.update({
-        where: { id: campaign.funding!.id },
+        where: { id: params.funding.id },
         data: {
           status: FundingStatus.RELEASED,
           releasedAt: new Date(),
@@ -417,30 +589,30 @@ export class PaymentsService {
           type: PaymentTransactionType.PAYOUT_RELEASE,
           amountKobo: releasedFunding.creatorNetKobo,
           providerReference: `${releasedFunding.providerReference}_PAYOUT`,
-          idempotencyKey: `release_${releasedFunding.id}`,
+          idempotencyKey: `${params.idempotencyPrefix}_${releasedFunding.id}`,
           status: PaymentTransactionStatus.SUCCEEDED,
-          metadata: { releasedBy: user.userId } as Prisma.InputJsonValue,
+          metadata: { releasedBy: params.actorUserId } as Prisma.InputJsonValue,
         },
       });
 
       await tx.campaign.update({
-        where: { id: campaign.id },
+        where: { id: params.campaignId },
         data: { status: CampaignStatus.PAYMENT_RELEASED },
       });
 
       await tx.campaignAssignment.updateMany({
-        where: { campaignId: campaign.id, completedAt: null },
+        where: { campaignId: params.campaignId, completedAt: null },
         data: { completedAt: new Date() },
       });
 
       await tx.auditLog.create({
         data: {
-          actorUserId: user.userId,
-          action: 'PAYMENT_RELEASED',
+          actorUserId: params.actorUserId,
+          action: params.auditAction,
           entityType: 'CampaignFunding',
           entityId: releasedFunding.id,
           metadata: {
-            campaignId: campaign.id,
+            campaignId: params.campaignId,
             creatorNetKobo: releasedFunding.creatorNetKobo,
           },
         },
@@ -449,14 +621,36 @@ export class PaymentsService {
       return releasedFunding;
     });
 
-    for (const assignment of campaign.assignments) {
+    for (const creatorUserId of params.creatorUserIds) {
       await this.notifications.create({
-        userId: assignment.creator.userId,
+        userId: creatorUserId,
         type: NotificationType.PAYMENT_RELEASED,
-        title: `Payout released: ${campaign.title}`,
-        message: `Partner payout release authorized for "${campaign.title}".`,
-        metadata: { campaignId: campaign.id, fundingId: updated.id },
+        title: `Payout released: ${params.campaignTitle}`,
+        message: `Partner payout release completed for "${params.campaignTitle}".`,
+        metadata: { campaignId: params.campaignId, fundingId: updated.id },
       });
+    }
+
+    if (params.notifyBusinessMessage) {
+      await this.notifications.create({
+        userId: params.businessOwnerUserId,
+        type: NotificationType.PAYMENT_RELEASED,
+        title: `Campaign settled: ${params.campaignTitle}`,
+        message: params.notifyBusinessMessage,
+        metadata: { campaignId: params.campaignId, fundingId: updated.id },
+      });
+    }
+
+    if (this.verificationService) {
+      for (const creatorId of params.creatorIds) {
+        try {
+          await this.verificationService.recalculateCreatorBenchmarkAndTier(
+            creatorId,
+          );
+        } catch {
+          // Benchmark refresh runs best-effort after ledger settlement
+        }
+      }
     }
 
     return updated;

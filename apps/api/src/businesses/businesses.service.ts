@@ -2,15 +2,20 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ApplicationStatus, CampaignStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { VerificationService } from '../verification/verification.service';
 import { UpdateBusinessDto } from './dto/update-business.dto';
 import { UpsertBusinessDto } from './dto/upsert-business.dto';
 
 @Injectable()
 export class BusinessesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly verificationService?: VerificationService,
+  ) {}
 
   async create(userId: string, dto: UpsertBusinessDto) {
     const existing = await this.prisma.business.findUnique({
@@ -83,11 +88,24 @@ export class BusinessesService {
   async getDashboard(userId: string) {
     const business = await this.getMine(userId);
 
+    if (this.verificationService) {
+      try {
+        await this.verificationService.runAgenticSync({
+          businessId: business.id,
+          staleHours: 6,
+          limit: 8,
+        });
+      } catch {
+        // Never block dashboard load if social/AI provider call fails
+      }
+    }
+
     const [campaigns, pendingApplicationsCount, recentPosts] = await Promise.all([
       this.prisma.campaign.findMany({
         where: { businessId: business.id },
         orderBy: { createdAt: 'desc' },
         include: {
+          funding: { select: { status: true } },
           _count: {
             select: { applications: true, assignments: true, posts: true },
           },
@@ -105,7 +123,18 @@ export class BusinessesService {
         take: 10,
         include: {
           campaign: { select: { id: true, title: true } },
-          creator: { select: { id: true, displayName: true } },
+          creator: {
+            select: {
+              id: true,
+              displayName: true,
+              tier: true,
+              overallAvgEngagement: true,
+            },
+          },
+          metricSnapshots: {
+            orderBy: { retrievedAt: 'desc' },
+            take: 1,
+          },
         },
       }),
     ]);

@@ -109,6 +109,13 @@ export enum UploadedFileStatus {
   READY = 'READY',
 }
 
+export enum CreatorTier {
+  TIER_1 = 'TIER_1',
+  TIER_2 = 'TIER_2',
+  TIER_3 = 'TIER_3',
+  TIER_4 = 'TIER_4',
+}
+
 export type MetricSource =
   | 'official_api'
   | 'creator_evidence'

@@ -158,6 +158,13 @@ enum UploadedFileStatus {
   READY
 }
 
+enum CreatorTier {
+  TIER_1
+  TIER_2
+  TIER_3
+  TIER_4
+}
+
 model User {
   id                String                    @id @default(cuid())
   email             String                    @unique
@@ -259,6 +266,12 @@ model Creator {
   isAvailable        Boolean                @default(true)
   minRateKobo        Int                    @default(0)
   maxRateKobo        Int?
+  tier               CreatorTier            @default(TIER_1)
+  fixedPriceKobo     Int                    @default(1500000)
+  overallAvgEngagement Float?
+  overallAvgViews    Int?
+  completedDealsCount Int                   @default(0)
+  lastBenchmarkAt    DateTime?
   payoutBankName     String?
   payoutAccountName  String?
   payoutAccountLast4 String?
@@ -277,6 +290,8 @@ model Creator {
   @@index([country, state, city])
   @@index([isAvailable])
   @@index([minRateKobo])
+  @@index([tier])
+  @@index([fixedPriceKobo])
 }
 
 model CreatorSocialAccount {
@@ -326,6 +341,7 @@ model Campaign {
   targetState          String?
   targetCity           String?
   platforms            SocialPlatform[]
+  targetTier           CreatorTier           @default(TIER_2)
   budgetKobo           Int
   creatorsNeeded       Int                   @default(1)
   deliverables         Json
@@ -350,6 +366,7 @@ model Campaign {
 
   @@index([businessId])
   @@index([status])
+  @@index([targetTier])
   @@index([targetCountry, targetState, targetCity])
 }
 
@@ -405,6 +422,8 @@ model CampaignPost {
   verificationStatus VerificationStatus @default(PENDING_VERIFICATION)
   submittedAt        DateTime           @default(now())
   retentionUntil     DateTime
+  aiInsightSummary   String?
+  lastSyncedAt       DateTime?
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 

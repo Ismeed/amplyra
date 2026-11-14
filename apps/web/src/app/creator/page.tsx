@@ -2,10 +2,11 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  CREATOR_TIER_DEFINITIONS,
   SocialPlatform,
   StoragePurpose,
   formatNgnFromKobo,
-  nairaToKobo,
+  getCreatorTierDefinition,
 } from '@amplyra/shared';
 import Link from 'next/link';
 import { ChangeEvent, FormEvent, useState } from 'react';
@@ -24,6 +25,11 @@ interface CreatorProfile {
   state?: string | null;
   country: string;
   categories: string[];
+  tier?: string;
+  fixedPriceKobo?: number;
+  overallAvgEngagement?: number | null;
+  overallAvgViews?: number | null;
+  completedDealsCount?: number;
   minRateKobo: number;
   maxRateKobo?: number | null;
   isAvailable: boolean;
@@ -53,7 +59,6 @@ export default function CreatorOverviewPage() {
   const [state, setState] = useState('Katsina');
   const [city, setCity] = useState('Katsina');
   const [categoriesText, setCategoriesText] = useState('Fashion, Lifestyle');
-  const [minRateNaira, setMinRateNaira] = useState('25000');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -96,7 +101,6 @@ export default function CreatorOverviewPage() {
             .split(',')
             .map((s) => s.trim())
             .filter(Boolean),
-          minRateKobo: nairaToKobo(Number(minRateNaira || 0)),
         }),
       });
       await refreshUser();
@@ -229,7 +233,7 @@ export default function CreatorOverviewPage() {
               />
             </div>
 
-            <div>
+            <div className="sm:col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">
                 Categories (comma-separated)
               </label>
@@ -240,17 +244,8 @@ export default function CreatorOverviewPage() {
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Minimum Promotional Rate (NGN)
-              </label>
-              <input
-                type="number"
-                min={0}
-                value={minRateNaira}
-                onChange={(e) => setMinRateNaira(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm"
-              />
+            <div className="sm:col-span-2 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900">
+              <strong>Fixed Tier Pricing:</strong> Your promotional fee (₦15,000 – ₦85,000) is set automatically based on your connected follower reach and AI engagement average after completed jobs.
             </div>
 
             <div className="sm:col-span-2">
@@ -298,10 +293,15 @@ export default function CreatorOverviewPage() {
                 </div>
               )}
               <div>
-                <h2 className="text-xl font-bold text-slate-900">{creator.displayName}</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-xl font-bold text-slate-900">{creator.displayName}</h2>
+                  <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900">
+                    {getCreatorTierDefinition(creator.tier).label}
+                  </span>
+                </div>
                 <p className="text-sm text-slate-500">
                   {[creator.city, creator.state, creator.country].filter(Boolean).join(', ')} •
-                  Starting rate {formatNgnFromKobo(creator.minRateKobo)}
+                  Fixed Tier Rate {formatNgnFromKobo(creator.fixedPriceKobo ?? creator.minRateKobo)}
                 </p>
                 <label className="inline-block mt-1 text-xs font-semibold text-emerald-700 hover:underline cursor-pointer">
                   {uploadingAvatar ? 'Uploading photo...' : 'Upload Profile Photo'}
@@ -315,32 +315,46 @@ export default function CreatorOverviewPage() {
                 </label>
               </div>
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
               <Link
                 href="/creator/discover"
                 className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold"
               >
-                Discover Campaigns
+                Available Offers
               </Link>
               <Link
                 href="/creator/work"
                 className="px-4 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-700"
               >
-                My Work ({creator._count.assignments})
+                Active Jobs ({creator._count.assignments})
               </Link>
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="bg-white p-5 rounded-2xl border border-slate-200">
-              <p className="text-xs font-medium text-slate-500 uppercase">Applications</p>
-              <p className="mt-2 text-2xl font-bold text-slate-900">
-                {creator._count.applications}
+          <div className="grid gap-4 sm:grid-cols-4">
+            <div className="bg-emerald-950 text-white p-5 rounded-2xl">
+              <p className="text-xs text-emerald-300 uppercase font-semibold">Your Fixed Tier Fee</p>
+              <p className="mt-2 text-2xl font-bold">
+                {formatNgnFromKobo(creator.fixedPriceKobo ?? creator.minRateKobo)}
+              </p>
+              <p className="text-[11px] text-emerald-200 mt-1">
+                {getCreatorTierDefinition(creator.tier).label}
               </p>
             </div>
             <div className="bg-white p-5 rounded-2xl border border-slate-200">
-              <p className="text-xs font-medium text-slate-500 uppercase">Active Assignments</p>
+              <p className="text-xs font-medium text-slate-500 uppercase">AI Overall Avg ER</p>
               <p className="mt-2 text-2xl font-bold text-emerald-700">
+                {creator.overallAvgEngagement !== null && creator.overallAvgEngagement !== undefined
+                  ? `${creator.overallAvgEngagement}%`
+                  : 'Baseline'}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Across {creator.completedDealsCount ?? 0} settled deals
+              </p>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-slate-200">
+              <p className="text-xs font-medium text-slate-500 uppercase">Active Jobs</p>
+              <p className="mt-2 text-2xl font-bold text-slate-900">
                 {creator._count.assignments}
               </p>
             </div>
@@ -352,11 +366,51 @@ export default function CreatorOverviewPage() {
             </div>
           </div>
 
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-semibold text-slate-900 text-sm">
+                  Platform Fixed Tiers &amp; How AI Upgrades Your Tier
+                </h3>
+                <p className="text-xs text-slate-500">
+                  After every settled deal (15-day payout), Amplyra AI averages your overall insight metrics to update your Tier eligibility.
+                </p>
+              </div>
+              <Link
+                href="/creator/social"
+                className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-800 hover:bg-slate-50"
+              >
+                Connect Official Social API
+              </Link>
+            </div>
+            <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+              {CREATOR_TIER_DEFINITIONS.map((t) => {
+                const isCurrent = (creator.tier ?? 'TIER_1') === t.tier;
+                return (
+                  <div
+                    key={t.tier}
+                    className={`p-3 rounded-xl border text-xs ${
+                      isCurrent
+                        ? 'border-emerald-500 bg-emerald-50/70'
+                        : 'border-slate-200 bg-slate-50/50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between font-bold text-slate-900">
+                      <span>{t.label}</span>
+                      <span>{formatNgnFromKobo(t.fixedPriceKobo)}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 mt-1">{t.description}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
               <h3 className="font-semibold text-slate-900">Social Channels</h3>
               <p className="text-xs text-slate-500">
-                Add your public handles and audience size. Official OAuth analytics connections arrive in Phase 2 (Amplyra never asks for social passwords).
+                Add your follower count and baseline engagement, and connect official Instagram/TikTok OAuth so Amplyra AI can sync live insights automatically.
               </p>
               <div className="space-y-2">
                 {creator.socialAccounts.map((sa) => (

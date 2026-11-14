@@ -143,4 +143,82 @@ describe('PaymentsService', () => {
     );
     expect(ok).toEqual({ received: true, provider: 'paystack' });
   });
+
+  it('enforces 15-day post retention lock on creator withdrawal and recalculates AI benchmark after settlement', async () => {
+    const mockVerification = {
+      recalculateCreatorBenchmarkAndTier: jest.fn().mockResolvedValue({
+        tier: 'TIER_3',
+        overallAvgEngagement: 5.4,
+      }),
+    };
+    const mockPrisma: any = {
+      creator: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'cr-1',
+          userId: 'user-cr-1',
+          displayName: 'Zainab Styles',
+        }),
+      },
+      campaign: { findUnique: jest.fn(), update: jest.fn() },
+      campaignFunding: { update: jest.fn() },
+      paymentTransaction: { create: jest.fn() },
+      campaignAssignment: { updateMany: jest.fn() },
+      auditLog: { create: jest.fn().mockResolvedValue({ id: 'audit-1' }) },
+      $transaction: jest.fn(async (cb: (tx: any) => Promise<any>) => cb(mockPrisma)),
+    };
+
+    const service = new PaymentsService(
+      mockPrisma,
+      new ConfigService({ PAYSTACK_SECRET_KEY: '' }),
+      mockNotifications as any,
+      mockVerification as any,
+    );
+
+    const futureUnlock = new Date(Date.now() + 7 * 86_400_000);
+    mockPrisma.campaign.findUnique.mockResolvedValueOnce({
+      id: 'camp-1',
+      title: 'Harmattan Launch',
+      business: { ownerUserId: 'user-biz-1' },
+      assignments: [{ creatorId: 'cr-1', creator: { userId: 'user-cr-1' } }],
+      posts: [{ retentionUntil: futureUnlock }],
+      funding: {
+        id: 'fund-1',
+        status: FundingStatus.HELD_BY_PARTNER,
+        creatorNetKobo: 4_500_000,
+        providerReference: 'AMP_REF_1',
+        disputes: [],
+      },
+    });
+
+    await expect(
+      service.withdrawCreatorEarnings('user-cr-1', 'camp-1'),
+    ).rejects.toThrow(BadRequestException);
+
+    const pastUnlock = new Date(Date.now() - 3_600_000);
+    mockPrisma.campaign.findUnique.mockResolvedValueOnce({
+      id: 'camp-1',
+      title: 'Harmattan Launch',
+      business: { ownerUserId: 'user-biz-1' },
+      assignments: [{ creatorId: 'cr-1', creator: { userId: 'user-cr-1' } }],
+      posts: [{ retentionUntil: pastUnlock }],
+      funding: {
+        id: 'fund-1',
+        status: FundingStatus.HELD_BY_PARTNER,
+        creatorNetKobo: 4_500_000,
+        providerReference: 'AMP_REF_1',
+        disputes: [],
+      },
+    });
+    mockPrisma.campaignFunding.update.mockResolvedValue({
+      id: 'fund-1',
+      status: FundingStatus.RELEASED,
+      creatorNetKobo: 4_500_000,
+    });
+
+    const withdrawn = await service.withdrawCreatorEarnings('user-cr-1', 'camp-1');
+    expect(withdrawn.status).toBe(FundingStatus.RELEASED);
+    expect(mockVerification.recalculateCreatorBenchmarkAndTier).toHaveBeenCalledWith(
+      'cr-1',
+    );
+  });
 });

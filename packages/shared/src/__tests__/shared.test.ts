@@ -2,12 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CampaignStatus,
+  CreatorTier,
   SocialPlatform,
   assertCampaignTransition,
   calculatePlatformFeeSplit,
+  canCreatorAccessTier,
   canTransitionCampaignStatus,
+  computeCreatorTier,
   computeEngagementMetrics,
   formatNgnFromKobo,
+  getCreatorTierDefinition,
+  inferTierFromBudgetKobo,
   koboToNaira,
   nairaToKobo,
   parseSocialPostUrl,
@@ -78,4 +83,39 @@ test('calculatePlatformFeeSplit computes 10% platform fee and net creator payout
   const split = calculatePlatformFeeSplit(5_000_000);
   assert.equal(split.platformFeeKobo, 500_000);
   assert.equal(split.creatorNetKobo, 4_500_000);
+});
+
+test('computeCreatorTier classifies creators deterministically and prioritizes AI history', () => {
+  const starter = computeCreatorTier({ maxFollowers: 4500, profileAvgEngagementPct: 5.0 });
+  assert.equal(starter.tier, CreatorTier.TIER_1);
+  assert.equal(starter.fixedPriceKobo, 1_500_000);
+
+  const rising = computeCreatorTier({ maxFollowers: 15000, profileAvgEngagementPct: 3.1 });
+  assert.equal(rising.tier, CreatorTier.TIER_2);
+  assert.equal(rising.fixedPriceKobo, 2_500_000);
+
+  const growth = computeCreatorTier({
+    maxFollowers: 41200,
+    profileAvgEngagementPct: 6.1,
+    overallAvgEngagementPct: 5.2,
+    completedDealsCount: 2,
+  });
+  assert.equal(growth.tier, CreatorTier.TIER_3);
+  assert.equal(growth.fixedPriceKobo, 5_000_000);
+  assert.equal(growth.basedOnAiHistory, true);
+  assert.equal(growth.effectiveEngagementPct, 5.2);
+
+  // High followers but poor post-deal AI engagement drops eligibility down from Tier 4/3
+  const downgraded = computeCreatorTier({
+    maxFollowers: 89000,
+    profileAvgEngagementPct: 6.0,
+    overallAvgEngagementPct: 1.9,
+    completedDealsCount: 3,
+  });
+  assert.equal(downgraded.tier, CreatorTier.TIER_1);
+
+  assert.equal(canCreatorAccessTier(CreatorTier.TIER_3, CreatorTier.TIER_2), true);
+  assert.equal(canCreatorAccessTier(CreatorTier.TIER_1, CreatorTier.TIER_3), false);
+  assert.equal(inferTierFromBudgetKobo(5_000_000).tier, CreatorTier.TIER_3);
+  assert.equal(getCreatorTierDefinition(CreatorTier.TIER_4).fixedPriceKobo, 8_500_000);
 });
